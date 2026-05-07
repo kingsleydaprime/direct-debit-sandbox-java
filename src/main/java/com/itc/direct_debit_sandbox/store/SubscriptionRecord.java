@@ -1,6 +1,7 @@
 package com.itc.direct_debit_sandbox.store;
 
 
+import com.itc.direct_debit_sandbox.subscriptions.FrequencyType;
 import lombok.Builder;
 import lombok.Data;
 import java.util.List;
@@ -14,7 +15,7 @@ public class SubscriptionRecord {
     private String productId;
     private String debitAccount;
     private String debitAmount;
-    private String frequencyType;
+    private FrequencyType frequencyType;
     private String startDate;
     private String endDate;
     private String debitDay;
