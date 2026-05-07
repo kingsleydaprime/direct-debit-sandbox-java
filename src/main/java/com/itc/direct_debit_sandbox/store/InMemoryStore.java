@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
-public class InMemoryStore {
+public class InMemoryStore implements Store {
 
     // ConcurrentHashMap — thread-safe, multiple async callbacks can hit this simultaneously
     private final Map<String, SubscriptionRecord> subscriptions = new ConcurrentHashMap<>();
