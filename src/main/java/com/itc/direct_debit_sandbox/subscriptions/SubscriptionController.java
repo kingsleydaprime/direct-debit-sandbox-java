@@ -1,21 +1,17 @@
 package com.itc.direct_debit_sandbox.subscriptions;
 
-import com.itc.direct_debit_sandbox.subscriptions.SubscriptionService;
-
 import com.itc.direct_debit_sandbox.subscriptions.dto.CancelRequest;
+import com.itc.direct_debit_sandbox.subscriptions.dto.CustomerSubRequest;
 import com.itc.direct_debit_sandbox.subscriptions.dto.SubscriptionRequestDto;
 import com.itc.direct_debit_sandbox.subscriptions.dto.UpdateRequest;
-import jdk.jshell.JShell;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import jakarta.validation.Valid;
-
-import java.net.http.HttpResponse;
 import java.util.Map;
 
 @RestController
 @RequiredArgsConstructor
+@RequestMapping("/subscription")
 public class SubscriptionController {
     private final SubscriptionService subscriptionService;
 
@@ -53,13 +49,13 @@ public Map<String, Object> subscribe(
     }
 
     @PostMapping("/customer-subscriptions")
-    public Map<String, Object> getCustomerSuscriptions(
+    public Map<String, Object> getCustomerSubscriptions(
             @RequestHeader("x-transflowId") String transflowId,
             @RequestHeader("x-key") String apiKey,
             @RequestHeader("x-country") String country,
-            @RequestBody SubscriptionRequestDto req) {
+            @RequestBody CustomerSubRequest req) {
 
-        return subscriptionService.getCustomerSuscriptions(transflowId, apiKey, country, req);
+        return subscriptionService.getCustomerSubscriptions(transflowId, apiKey, country, req);
     }
 
 }

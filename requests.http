@@ -1,0 +1,518 @@
+### ─────────────────────────────────────────────────────────────────────────
+### Direct Debit Sandbox — HTTP Request Collection
+### Works with: IntelliJ HTTP Client  |  VS Code REST Client extension
+###
+### SCENARIO CHEAT SHEET (last 3 digits of debitAccount drive the outcome):
+###   001  →  Success
+###   101  →  Insufficient funds
+###   104  →  Duplicate transaction
+###   004  →  Pre-approval pending
+###   131  →  Timeout
+###   111  →  Inconclusive
+###   100  →  General failure
+### ─────────────────────────────────────────────────────────────────────────
+
+### Shared variables — change these once to affect every request below
+@baseUrl      = http://localhost:8080
+@transflowId  = TF-SANDBOX-001
+@apiKey       = KEY-SANDBOX-ABC
+@country      = GH
+@merchantId   = MERCH_12345
+@productId    = PROD_67890
+@callbackUrl  = https://webhook.site/your-unique-id
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 1. PROVISION
+###    Register the callback URL for a merchant + product.
+###    Do this FIRST — all subsequent callbacks are sent to this URL.
+### ═════════════════════════════════════════════════════════════════════════
+
+### 1a. Register callback (happy path)
+POST {{baseUrl}}/provision
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "callbackUrl": "{{callbackUrl}}",
+  "retryAttempts": 3,
+  "skipFactor": 1,
+  "daysToDebitDayNotice": "1,3"
+}
+
+###
+
+### 1b. Update callback URL (call again with a different URL — overwrites the old one)
+POST {{baseUrl}}/provision
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "callbackUrl": "https://webhook.site/updated-url"
+}
+
+###
+
+### 1c. Missing credentials — expect responseCode 107
+POST {{baseUrl}}/provision
+Content-Type: application/json
+x-transflowId:
+x-key:
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "callbackUrl": "{{callbackUrl}}"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 2. SUBSCRIBE
+###    Creates a recurring subscription.
+###    Returns 03 immediately. Preapproval callback fires after 2s,
+###    transaction callback fires after 7s — to the provisioned URL.
+### ═════════════════════════════════════════════════════════════════════════
+
+### 2a. Monthly mobile money — success scenario (account ends 001)
+POST {{baseUrl}}/subscription/subscribe
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "debitAccount": "0241234001",
+  "debitAmount": "50.00",
+  "frequencyType": "MONTHLY",
+  "startDate": "2026-06-01",
+  "debitDay": "15",
+  "debitTime": "14:30",
+  "channel": "MTN",
+  "currency": "GHS",
+  "referenceNo": "REF_2026_001",
+  "debitNotificationAccount": "0241234001",
+  "triggerDebitStatus": true,
+  "notificationStatus": true,
+  "configuration": [
+    { "name": "retryAttempts", "value": "3" },
+    { "name": "skipFactor", "value": "1" }
+  ]
+}
+
+###
+
+### 2b. Weekly debit with end date
+POST {{baseUrl}}/subscription/subscribe
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "debitAccount": "0241234001",
+  "debitAmount": "25.00",
+  "frequencyType": "WEEKLY",
+  "startDate": "2026-06-01",
+  "endDate": "2027-06-01",
+  "debitDay": "1",
+  "debitTime": "09:00",
+  "channel": "MTN",
+  "currency": "GHS",
+  "referenceNo": "REF_2026_002"
+}
+
+###
+
+### 2c. Insufficient funds scenario (account ends 101)
+POST {{baseUrl}}/subscription/subscribe
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "debitAccount": "0241234101",
+  "debitAmount": "200.00",
+  "frequencyType": "MONTHLY",
+  "startDate": "2026-06-01",
+  "debitDay": "1",
+  "debitTime": "14:00",
+  "channel": "MTN",
+  "currency": "GHS",
+  "referenceNo": "REF_2026_003"
+}
+
+###
+
+### 2d. Duplicate reference — expect responseCode 104
+POST {{baseUrl}}/subscription/subscribe
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "debitAccount": "0241234001",
+  "debitAmount": "50.00",
+  "frequencyType": "MONTHLY",
+  "startDate": "2026-06-01",
+  "debitDay": "15",
+  "debitTime": "14:30",
+  "channel": "MTN",
+  "currency": "GHS",
+  "referenceNo": "REF_2026_001"
+}
+
+###
+
+### 2e. Missing required field (no debitAccount) — expect 400 validation error
+POST {{baseUrl}}/subscription/subscribe
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "debitAmount": "50.00",
+  "frequencyType": "MONTHLY",
+  "startDate": "2026-06-01",
+  "debitDay": "15",
+  "debitTime": "14:30",
+  "channel": "MTN",
+  "currency": "GHS"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 3. UPDATE SUBSCRIPTION
+###    Only send fields you want to change. subscriptionId is always required.
+###    Replace SUB_REPLACE_ME with an ID returned from a subscribe call.
+### ═════════════════════════════════════════════════════════════════════════
+
+### 3a. Change amount and debit day
+POST {{baseUrl}}/subscription/update
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "subscriptionId": "SUB_REPLACE_ME",
+  "productId": "{{productId}}",
+  "debitAmount": "75.00",
+  "debitDay": "20",
+  "configuration": [
+    { "name": "retryAttempts", "value": "4" },
+    { "name": "skipFactor", "value": "1" },
+    { "name": "daysToDebitDayNotice", "value": "2,5" }
+  ]
+}
+
+###
+
+### 3b. Subscription not found — expect responseCode 100
+POST {{baseUrl}}/subscription/update
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "subscriptionId": "SUBNOTEXIST000",
+  "productId": "{{productId}}",
+  "debitAmount": "75.00"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 4. CANCEL SUBSCRIPTION
+### ═════════════════════════════════════════════════════════════════════════
+
+### 4a. Cancel — happy path
+POST {{baseUrl}}/subscription/cancel
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "subscriptionId": "SUB_REPLACE_ME",
+  "productId": "{{productId}}"
+}
+
+###
+
+### 4b. Cancel — not found
+POST {{baseUrl}}/subscription/cancel
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "subscriptionId": "SUBNOTEXIST000",
+  "productId": "{{productId}}"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 5. GET CUSTOMER SUBSCRIPTIONS
+###    Returns all subscriptions for a debitAccount on a given product.
+### ═════════════════════════════════════════════════════════════════════════
+
+### 5a. Fetch all subscriptions for account
+POST {{baseUrl}}/subscription/customer-subscriptions
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "debitAccount": "0241234001",
+  "productId": "{{productId}}"
+}
+
+###
+
+### 5b. Account with no subscriptions — expect responseCode 100
+POST {{baseUrl}}/subscription/customer-subscriptions
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "debitAccount": "0000000000",
+  "productId": "{{productId}}"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 6. PAUSE SUBSCRIPTION
+### ═════════════════════════════════════════════════════════════════════════
+
+### 6a. Pause — happy path
+POST {{baseUrl}}/subscription/pause
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "subscriptionId": "SUB_REPLACE_ME",
+  "productId": "{{productId}}"
+}
+
+###
+
+### 6b. Pause an already-paused subscription — expect error
+POST {{baseUrl}}/subscription/pause
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "subscriptionId": "SUB_REPLACE_ME",
+  "productId": "{{productId}}"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 7. RESUME SUBSCRIPTION
+###    Only works if the subscription is currently PAUSED.
+### ═════════════════════════════════════════════════════════════════════════
+
+### 7a. Resume — happy path
+POST {{baseUrl}}/subscription/resume-debit
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "subscriptionId": "SUB_REPLACE_ME",
+  "productId": "{{productId}}"
+}
+
+###
+
+### 7b. Resume a subscription that is not paused — expect error
+POST {{baseUrl}}/subscription/resume-debit
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "subscriptionId": "SUB_REPLACE_ME",
+  "productId": "{{productId}}"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 8. TRIGGER DEBIT
+###    Manually triggers a debit for a failed subscription.
+###    Uses referenceNo (not subscriptionId) to look up the record.
+### ═════════════════════════════════════════════════════════════════════════
+
+### 8a. Trigger — happy path (will fire transaction callback asynchronously)
+POST {{baseUrl}}/subscription/trigger-debit
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "referenceId": "REF_2026_001",
+  "productId": "{{productId}}"
+}
+
+###
+
+### 8b. Trigger — reference not found
+POST {{baseUrl}}/subscription/trigger-debit
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "referenceId": "REF_DOES_NOT_EXIST",
+  "productId": "{{productId}}"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 9. SCHEDULE ONE-TIME DEBIT
+###    Schedules a single future debit. debitDate must be 24+ hours away.
+###    callbackUrl here is a per-request fallback (provision URL takes priority).
+### ═════════════════════════════════════════════════════════════════════════
+
+### 9a. Schedule — happy path (success scenario, account ends 001)
+POST {{baseUrl}}/subscription/schedule-debit
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "country": "{{country}}",
+  "debitAccount": "0241234001",
+  "debitAmount": "150.00",
+  "debitDate": "2026-06-15",
+  "debitTime": "14:30",
+  "debitNotificationAccount": "0241234001",
+  "referenceNo": "REF_SCHED_001",
+  "channel": "MTN",
+  "currency": "GHS",
+  "callbackUrl": "{{callbackUrl}}"
+}
+
+###
+
+### 9b. Schedule — debitDate is today (less than 24h away) — expect responseCode 100
+POST {{baseUrl}}/subscription/schedule-debit
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "country": "{{country}}",
+  "debitAccount": "0241234001",
+  "debitAmount": "150.00",
+  "debitDate": "2026-05-07",
+  "debitTime": "10:00",
+  "referenceNo": "REF_SCHED_002",
+  "channel": "MTN",
+  "currency": "GHS",
+  "callbackUrl": "{{callbackUrl}}"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 10. RETRIEVE SUBSCRIPTION BY REFERENCE
+###     Fetches the full subscription record using the third-party referenceNo.
+### ═════════════════════════════════════════════════════════════════════════
+
+### 10a. Retrieve — happy path
+POST {{baseUrl}}/subscription/retrieve/details/thirdpartyreferenceno
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "referenceId": "REF_2026_001",
+  "productId": "{{productId}}"
+}
+
+###
+
+### 10b. Retrieve — not found
+POST {{baseUrl}}/subscription/retrieve/details/thirdpartyreferenceno
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "referenceId": "REF_DOES_NOT_EXIST",
+  "productId": "{{productId}}"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 11. CHECK TRANSACTION STATUS
+###     Looks up the outcome of a debit using its reference, productId, mandateId.
+###     mandateId is returned in the transaction callback payload.
+### ═════════════════════════════════════════════════════════════════════════
+
+### 11a. Check status — found (run after a subscribe + wait 7s for callback)
+POST {{baseUrl}}/transaction/check-status
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "reference": "REF_2026_001",
+  "productId": "{{productId}}",
+  "mandateId": "MAND_REPLACE_ME"
+}
+
+###
+
+### 11b. Check status — not found (returns responseCode 99)
+POST {{baseUrl}}/transaction/check-status
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "reference": "REF_DOES_NOT_EXIST",
+  "productId": "{{productId}}",
+  "mandateId": "MANDNOTEXIST"
+}

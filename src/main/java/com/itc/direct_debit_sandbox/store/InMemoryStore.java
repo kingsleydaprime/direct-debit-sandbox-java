@@ -10,7 +10,9 @@ public class InMemoryStore implements Store {
 
     // ConcurrentHashMap — thread-safe, multiple async callbacks can hit this simultaneously
     private final Map<String, SubscriptionRecord> subscriptions = new ConcurrentHashMap<>();
-    private final Map<String, TransactionRecord> transactions = new ConcurrentHashMap<>();
+    private final Map<String, TransactionRecord>  transactions  = new ConcurrentHashMap<>();
+    // Key = "merchantId:productId"
+    private final Map<String, ProvisionRecord>    provisions    = new ConcurrentHashMap<>();
 
     // Subscription methods
     public void saveSubscription(String subscriptionId, SubscriptionRecord record) {
@@ -59,5 +61,12 @@ public class InMemoryStore implements Store {
         return transactions.containsKey(reference);
     }
 
+    // Provision methods
+    public void saveProvision(String merchantId, String productId, ProvisionRecord record) {
+        provisions.put(merchantId + ":" + productId, record);
+    }
 
+    public ProvisionRecord getProvision(String merchantId, String productId) {
+        return provisions.get(merchantId + ":" + productId);
+    }
 }

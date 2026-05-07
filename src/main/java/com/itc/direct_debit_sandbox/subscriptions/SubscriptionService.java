@@ -1,5 +1,6 @@
 package com.itc.direct_debit_sandbox.subscriptions;
 
+import com.itc.direct_debit_sandbox.callbacks.CallbackService;
 import com.itc.direct_debit_sandbox.store.InMemoryStore;
 import com.itc.direct_debit_sandbox.store.SubscriptionRecord;
 import com.itc.direct_debit_sandbox.subscriptions.dto.CancelRequest;
@@ -17,6 +18,7 @@ import java.util.*;
 public class SubscriptionService {
 
     private final InMemoryStore store;
+    private final CallbackService callbackService;
 
     // ─── HEADER VALIDATION ───────────────────────────────────────────────────
     // Called at the start of every method. Returns an error map if headers
@@ -37,9 +39,62 @@ public class SubscriptionService {
 
     // ─── SUBSCRIBE ───────────────────────────────────────────────────────────
 
-    public Map<String, Object> subscribe(String transflowId, String apiKey,
-                                         String country, SubscriptionRequestDto req) {
-        return null;
+    public Map<String, Object> subscribe(
+        String transflowId,
+        String apiKey,
+        String country,
+        SubscriptionRequestDto req) {
+
+        Map<String, Object> authError = validateHeaders(transflowId, apiKey, country);
+        if (authError != null) return authError;
+
+        // Guard against duplicate references — same referenceNo already exists
+        if (req.getReferenceNo() != null && store.getSubscriptionByReference(req.getReferenceNo()) != null) {
+            Map<String, Object> duplicate = new HashMap<>();
+            duplicate.put("responseCode", "104");
+            duplicate.put("responseMessage", "Duplicate transaction - a subscription with this reference already exists");
+            return duplicate;
+        }
+
+        // Generate unique IDs for this subscription
+        String subscriptionId = "SUB" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+        String mandateId      = "MAND" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
+
+        // Build the record that will live in the in-memory store
+        SubscriptionRecord record = SubscriptionRecord.builder()
+                .subscriptionId(subscriptionId)
+                .mandateId(mandateId)
+                .merchantId(req.getMerchantId())
+                .productId(req.getProductId())
+                .debitAccount(req.getDebitAccount())
+                .debitAmount(req.getDebitAmount())
+                .frequencyType(req.getFrequencyType())
+                .startDate(req.getStartDate())
+                .endDate(req.getEndDate())
+                .debitDay(req.getDebitDay())
+                .debitTime(req.getDebitTime())
+                .referenceNo(req.getReferenceNo())
+                .channel(req.getChannel())
+                .currency(req.getCurrency())
+                .country(country)
+                .debitNotificationAccount(req.getDebitNotificationAccount())
+                .status("ACTIVE")
+                // Boolean fields: treat null as false
+                .triggerDebitStatus(Boolean.TRUE.equals(req.getTriggerDebitStatus()))
+                .notificationStatus(Boolean.TRUE.equals(req.getNotificationStatus()))
+                .configuration(req.getConfiguration())
+                .createdAt(Instant.now().toString())
+                .build();
+
+        store.saveSubscription(subscriptionId, record);
+
+        // Fire preapproval callback then transaction callback asynchronously
+        callbackService.fireCallbacks(record);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("responseCode",    "03");
+        response.put("responseMessage", "your request is being processed");
+        return response;
     }
 
     // ─── UPDATE ──────────────────────────────────────────────────────────────
@@ -128,7 +183,12 @@ public class SubscriptionService {
         return response;
     }
 
+    // Delegates to the correctly-named method above.
+    // The controller calls this name (typo preserved so we don't break the call site).
     public Map<String, Object> getCustomerSuscriptions(String transflowId, String apiKey, String country, SubscriptionRequestDto req) {
-        return  new HashMap<>();
+        CustomerSubRequest subReq = new CustomerSubRequest();
+        subReq.setDebitAccount(req.getDebitAccount());
+        subReq.setProductId(req.getProductId());
+        return getCustomerSubscriptions(transflowId, apiKey, country, subReq);
     }
 }

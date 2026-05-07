@@ -19,4 +19,8 @@ public interface Store {
     void saveTransaction(String reference, TransactionRecord record);
     TransactionRecord getTransaction(String reference);
     boolean transactionExists(String reference);
+
+    // Provision methods
+    void saveProvision(String merchantId, String productId, ProvisionRecord record);
+    ProvisionRecord getProvision(String merchantId, String productId);
 }

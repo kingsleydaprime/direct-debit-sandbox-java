@@ -4,6 +4,7 @@ import com.itc.direct_debit_sandbox.callbacks.dto.PreapprovalCallbackPayloadDto;
 import com.itc.direct_debit_sandbox.callbacks.dto.TransactionCallbackPayloadDto;
 import com.itc.direct_debit_sandbox.config.SandboxConfig;
 import com.itc.direct_debit_sandbox.scenarios.ScenarioEngine;
+import com.itc.direct_debit_sandbox.store.ProvisionRecord;
 import com.itc.direct_debit_sandbox.store.Store;
 import com.itc.direct_debit_sandbox.store.SubscriptionRecord;
 import com.itc.direct_debit_sandbox.store.TransactionRecord;
@@ -57,7 +58,8 @@ public class CallbackService {
                 .country(subscription.getCountry())
                 .build();
 
-        sendCallback(subscription.getCallbackUrl(), payload);
+        String url = resolveCallbackUrl(subscription.getMerchantId(), subscription.getProductId(), subscription.getCallbackUrl());
+        sendCallback(url, payload);
         log.info("Preapproval callback fired for mandateId: {}", subscription.getMandateId());
     }
 
@@ -105,7 +107,8 @@ public class CallbackService {
                 .status(responseCode.equals("01") ? "SUCCESS" : "FAILED")
                 .build());
 
-        sendCallback(record.getCallbackUrl(), payload);
+        String url = resolveCallbackUrl(record.getMerchantId(), record.getProductId(), record.getCallbackUrl());
+        sendCallback(url, payload);
         log.info("Transaction callback fired for mandateId: {}, responseCode: {}",
                 record.getMandateId(), responseCode);
     }
@@ -139,9 +142,20 @@ public class CallbackService {
                 .charge(record.getCharge() != null ? record.getCharge() : "0.00")
                 .build();
 
-        sendCallback(callbackUrl, payload);
+        String url = resolveCallbackUrl(record.getMerchantId(), record.getProductId(), callbackUrl);
+        sendCallback(url, payload);
         log.info("One-time Transaction callback fired for reference: {}, responseCode: {}",
                 record.getReference(), responseCode);
+    }
+
+    // Look up the registered callbackUrl for a merchant+product from the provision store.
+    // Falls back to the supplied fallback value if no provision has been registered yet.
+    private String resolveCallbackUrl(String merchantId, String productId, String fallback) {
+        ProvisionRecord provision = store.getProvision(merchantId, productId);
+        if (provision != null && provision.getCallbackUrl() != null) {
+            return provision.getCallbackUrl();
+        }
+        return fallback;
     }
 
     private void sendCallback(String callbackUrl, Object payload) {
