@@ -10,7 +10,7 @@ import com.itc.direct_debit_sandbox.store.Store;
 import com.itc.direct_debit_sandbox.store.SubscriptionRecord;
 import com.itc.direct_debit_sandbox.store.TransactionRecord;
 import com.itc.direct_debit_sandbox.subscriptions.dto.ApiResponseDto;
-import com.itc.direct_debit_sandbox.scenario.ScenarioEngine;
+import com.itc.direct_debit_sandbox.scenarios.ScenarioEngine;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -130,21 +130,16 @@ public class LifecycleService {
         } catch (Exception e) {
             resolvedCode = "01"; // fallback success code
         }
-        // Fire callback asynchronously
-        new Thread(() -> {
-            try {
-                callbackService.fireTransactionCallback(record, resolvedCode);
-            } catch (Exception ex) {
-                // In production, log the exception
-            }
-        }).start();
+        // Fire callback asynchronously (Person 3 code integrated)
+        callbackService.fireTransactionCallback(record);
+
         return immediateResponse;
     }
 
     /**
      * Schedule a one-time debit.
      */
-    public ApiResponseDto<?> scheduleOneTimeDebit(ScheduleDebitRequest request) {
+    public ApiResponseDto<?> scheduleDebit(ScheduleDebitRequest request) {
         // 1. Validate debitDate is at least 24 hours in the future
         try {
             LocalDate debitDate = LocalDate.parse(request.getDebitDate(), DateTimeFormatter.ISO_LOCAL_DATE);
@@ -189,18 +184,8 @@ public class LifecycleService {
                 .data(record)
                 .build();
 
-        // 5. Fire async transaction callback after delay (Placeholder - wire after Person 3 is ready)
-        new Thread(() -> {
-            try {
-                // Simulate processing delay
-                Thread.sleep(5000);
-                
-                String resolvedCode = scenarioEngine.resolveResponseCode(request.getDebitAccount());
-                // TODO: callbackService.fireTransactionCallback(record, resolvedCode);
-            } catch (Exception ex) {
-                // Log exception
-            }
-        }).start();
+        // 5. Fire async transaction callback after delay (Person 3 code integrated)
+        callbackService.fireOneTimeTransactionCallback(record, request.getCallbackUrl());
 
         return immediateResponse;
     }

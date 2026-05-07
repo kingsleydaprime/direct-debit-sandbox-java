@@ -15,5 +15,6 @@ public class ScheduleDebitRequest {
     private String currency;
     private String debitAccount;
     private String debitAmount;
+    private String callbackUrl;
 
 }
