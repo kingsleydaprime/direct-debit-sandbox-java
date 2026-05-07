@@ -1,0 +1,33 @@
+package com.itc.direct_debit_sandbox.store;
+
+
+import lombok.Builder;
+import lombok.Data;
+import java.util.List;
+
+@Data
+@Builder
+public class SubscriptionRecord {
+    private String subscriptionId;
+    private String mandateId;
+    private String merchantId;
+    private String productId;
+    private String debitAccount;
+    private String debitAmount;
+    private String frequencyType;
+    private String startDate;
+    private String endDate;
+    private String debitDay;
+    private String debitTime;
+    private String referenceNo;
+    private String channel;
+    private String currency;
+    private String country;
+    private String debitNotificationAccount;
+    private String callbackUrl;
+    private String status; // ACTIVE, PAUSED, CANCELLED
+    private boolean triggerDebitStatus;
+    private boolean notificationStatus;
+    private List<ConfigurationItem> configuration;
+    private String createdAt;
+}
