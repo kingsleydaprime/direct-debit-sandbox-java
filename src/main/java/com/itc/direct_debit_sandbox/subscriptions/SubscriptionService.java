@@ -57,13 +57,11 @@ public class SubscriptionService {
         }
 
         // Generate unique IDs for this subscription
-        String subscriptionId = "SUB" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
-        String mandateId      = "MAND" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
+        String mandateId = UUID.randomUUID().toString();
 
         // Build the record that will live in the in-memory store
         SubscriptionRecord record = SubscriptionRecord.builder()
-                .subscriptionId(subscriptionId)
-                .mandateId(mandateId)
+                .id(mandateId)
                 .merchantId(req.getMerchantId())
                 .productId(req.getProductId())
                 .debitAccount(req.getDebitAccount())
@@ -86,7 +84,7 @@ public class SubscriptionService {
                 .createdAt(Instant.now().toString())
                 .build();
 
-        store.saveSubscription(subscriptionId, record);
+        store.createSubscription(mandateId, record);
 
         // Fire preapproval callback then transaction callback asynchronously
         callbackService.fireCallbacks(record);
@@ -126,7 +124,9 @@ public class SubscriptionService {
         if (req.getCurrency()               != null) existing.setCurrency(req.getCurrency());
         if (req.getDebitNotificationAccount() != null) existing.setDebitNotificationAccount(req.getDebitNotificationAccount());
 
-        store.saveSubscription(req.getSubscriptionId(), existing);
+        store.updateSubscription(req.getSubscriptionId(), existing);
+
+        callbackService.fireCallbacks(existing);
 
         Map<String, Object> response = new HashMap<>();
         response.put("responseCode",    "03");

@@ -14,12 +14,14 @@
 
 ### Shared variables — change these once to affect every request below
 @baseUrl      = http://localhost:8080
-@transflowId  = TF-SANDBOX-001
-@apiKey       = KEY-SANDBOX-ABC
+@transflowId  = 82d726a2-4b42-11ee-be56-0242ac120002
+@apiKey       = b76d1751-7b10-423e-8ed9-3c6b68ef7a07
 @country      = GH
-@merchantId   = MERCH_12345
-@productId    = PROD_67890
+@merchantId   = c64bf5f9-f147-4232-8d00-f28105823d6a
+@productId    = ff469300-0a9f-43cc-92ca-25e0b75dfe18
 @callbackUrl  = https://webhook.site/25d15f54-20af-47a5-af23-5931dff0378e
+
+@mandateId = 1eb0943b-c902-4001-a572-b2e456e6ba61
 
 
 ### ═════════════════════════════════════════════════════════════════════════
@@ -213,7 +215,7 @@ x-key: {{apiKey}}
 x-country: {{country}}
 
 {
-  "subscriptionId": "SUB_REPLACE_ME",
+  "subscriptionId": "{{mandateId}}",
   "productId": "{{productId}}",
   "debitAmount": "75.00",
   "debitDay": "20",
@@ -234,7 +236,7 @@ x-key: {{apiKey}}
 x-country: {{country}}
 
 {
-  "subscriptionId": "SUBNOTEXIST000",
+  "subscriptionId": "00000000-2655-4b0e-ad58-ec670ee99f50",
   "productId": "{{productId}}",
   "debitAmount": "75.00"
 }
@@ -252,7 +254,7 @@ x-key: {{apiKey}}
 x-country: {{country}}
 
 {
-  "subscriptionId": "SUB_REPLACE_ME",
+  "subscriptionId": "{{mandateId}}",
   "productId": "{{productId}}"
 }
 
@@ -266,7 +268,7 @@ x-key: {{apiKey}}
 x-country: {{country}}
 
 {
-  "subscriptionId": "SUBNOTEXIST000",
+  "subscriptionId": "1eb0943b-c902-4001-a572-b2e456e6ba67",
   "productId": "{{productId}}"
 }
 
@@ -315,7 +317,7 @@ x-key: {{apiKey}}
 x-country: {{country}}
 
 {
-  "subscriptionId": "SUB_REPLACE_ME",
+  "subscriptionId": "{{mandateId}}",
   "productId": "{{productId}}"
 }
 
@@ -329,7 +331,7 @@ x-key: {{apiKey}}
 x-country: {{country}}
 
 {
-  "subscriptionId": "SUB_REPLACE_ME",
+  "subscriptionId": "{{mandateId}}",
   "productId": "{{productId}}"
 }
 
@@ -347,7 +349,7 @@ x-key: {{apiKey}}
 x-country: {{country}}
 
 {
-  "subscriptionId": "SUB_REPLACE_ME",
+  "subscriptionId": "{{mandateId}}",
   "productId": "{{productId}}"
 }
 
@@ -361,7 +363,7 @@ x-key: {{apiKey}}
 x-country: {{country}}
 
 {
-  "subscriptionId": "SUB_REPLACE_ME",
+  "subscriptionId": "{{mandateId}}",
   "productId": "{{productId}}"
 }
 
@@ -499,7 +501,7 @@ x-country: {{country}}
 {
   "reference": "REF_2026_001",
   "productId": "{{productId}}",
-  "mandateId": "MAND_REPLACE_ME"
+  "mandateId": "{{mandateId}}"
 }
 
 ###
@@ -516,3 +518,13 @@ x-country: {{country}}
   "productId": "{{productId}}",
   "mandateId": "MANDNOTEXIST"
 }
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 12. DEBUG
+###     Inspect the live state of all in-memory maps.
+###     Also prints a snapshot to the server console log.
+### ═════════════════════════════════════════════════════════════════════════
+
+### 12a. Dump entire store — subscriptions, transactions, provisions, and both indexes
+GET {{baseUrl}}/debug/store

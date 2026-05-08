@@ -158,13 +158,11 @@ public class LifecycleService {
         }
 
         // 2. Generate transactionId and mandateId
-        String transactionId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         String mandateId = "MAND" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
 
         // 3. Save TransactionRecord to the store with status PROCESSING
         TransactionRecord record = TransactionRecord.builder()
-                .transactionId(transactionId)
-                .mandateId(mandateId)
+                .id(mandateId)
                 .merchantId(request.getMerchantId())
                 .productId(request.getProductId())
                 .debitAccount(request.getDebitAccount())

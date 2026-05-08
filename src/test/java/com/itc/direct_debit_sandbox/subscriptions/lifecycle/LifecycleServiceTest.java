@@ -36,7 +36,7 @@ class LifecycleServiceTest {
                 .status("ACTIVE")
                 .referenceNo("REF123")
                 .build();
-        store.saveSubscription(subId, record);
+        store.createSubscription(subId, record);
 
         // 2. Act: Call pause
         PauseRequest request = new PauseRequest();

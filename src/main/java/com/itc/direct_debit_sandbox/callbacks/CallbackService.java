@@ -49,7 +49,7 @@ public class CallbackService {
         PreapprovalCallbackPayloadDto payload = PreapprovalCallbackPayloadDto.builder()
                 .responseCode("01")
                 .responseMessage("Recurring subscription has been scheduled successfully")
-                .mandateId(subscription.getMandateId())
+                .mandateId(subscription.getId())
                 .merchantId(subscription.getMerchantId())
                 .productId(subscription.getProductId())
                 .debitAccount(subscription.getDebitAccount())
@@ -60,7 +60,7 @@ public class CallbackService {
 
         String url = resolveCallbackUrl(subscription.getMerchantId(), subscription.getProductId(), subscription.getCallbackUrl());
         sendCallback(url, payload);
-        log.info("Preapproval callback fired for mandateId: {}", subscription.getMandateId());
+        log.info("Preapproval callback fired for mandateId: {}", subscription.getId());
     }
 
     @Async("callbackExecutor")
@@ -77,11 +77,11 @@ public class CallbackService {
                 .networkTransactionId(UUID.randomUUID().toString())
                 .merchantId(record.getMerchantId())
                 .productId(record.getProductId())
-                .mandateId(record.getMandateId())
+                .mandateId(record.getId())
                 .debitAccount(record.getDebitAccount())
                 .debitAmount(record.getDebitAmount())
                 .reference(record.getReferenceNo())
-                .narration("SANDBOX DEBIT FOR " + record.getMandateId())
+                .narration("SANDBOX DEBIT FOR " + record.getId())
                 .timestamp(timestamp)
                 .channel(record.getChannel())
                 .charge("0.00")
@@ -89,10 +89,9 @@ public class CallbackService {
 
         // Save transaction to store
         store.saveTransaction(record.getReferenceNo(), TransactionRecord.builder()
-                .transactionId(transactionId)
+                .id(transactionId)
                 .networkTransactionId(payload.getNetworkTransactionId())
-                .mandateId(record.getMandateId())
-                .subscriptionId(record.getSubscriptionId())
+                .subscriptionId(record.getId())
                 .merchantId(record.getMerchantId())
                 .productId(record.getProductId())
                 .debitAccount(record.getDebitAccount())
@@ -110,7 +109,7 @@ public class CallbackService {
         String url = resolveCallbackUrl(record.getMerchantId(), record.getProductId(), record.getCallbackUrl());
         sendCallback(url, payload);
         log.info("Transaction callback fired for mandateId: {}, responseCode: {}",
-                record.getMandateId(), responseCode);
+                record.getId(), responseCode);
     }
 
     @Async("callbackExecutor")
@@ -128,11 +127,11 @@ public class CallbackService {
         TransactionCallbackPayloadDto payload = TransactionCallbackPayloadDto.builder()
                 .responseCode(responseCode)
                 .responseMessage(responseMessage)
-                .debitOrderTransactionId(record.getTransactionId())
+                .debitOrderTransactionId(record.getId())
                 .networkTransactionId(record.getNetworkTransactionId())
                 .merchantId(record.getMerchantId())
                 .productId(record.getProductId())
-                .mandateId(record.getMandateId())
+                .mandateId(record.getSubscriptionId())
                 .debitAccount(record.getDebitAccount())
                 .debitAmount(record.getDebitAmount())
                 .reference(record.getReference())

@@ -8,7 +8,8 @@ import java.util.List;
  */
 public interface Store {
     // Subscription methods
-    void saveSubscription(String subscriptionId, SubscriptionRecord record);
+    void createSubscription(String subscriptionId, SubscriptionRecord record);
+    void updateSubscription(String subscriptionId, SubscriptionRecord record);
     SubscriptionRecord getSubscription(String subscriptionId);
     SubscriptionRecord getSubscriptionByReference(String referenceNo);
     List<SubscriptionRecord> getSubscriptionsByAccount(String debitAccount, String productId);
