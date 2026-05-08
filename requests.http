@@ -19,7 +19,7 @@
 @country      = GH
 @merchantId   = MERCH_12345
 @productId    = PROD_67890
-@callbackUrl  = https://webhook.site/your-unique-id
+@callbackUrl  = https://webhook.site/25d15f54-20af-47a5-af23-5931dff0378e
 
 
 ### ═════════════════════════════════════════════════════════════════════════

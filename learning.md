@@ -1254,6 +1254,54 @@ To fix this, you either:
 
 ---
 
+## 42. Where do installed packages live?
+
+In Maven, your dependencies are listed in `pom.xml`. In Gradle, they live in the **`build.gradle.kts`** file inside the `dependencies { ... }` block.
+It looks like this:
+```kotlin
+dependencies {
+    implementation("org.springframework.boot:spring-boot-starter-web")
+}
+```
+Whenever you add a new line here, Gradle automatically downloads the package from Maven Central and makes it available to your code.
+
+---
+
+## 43. What to commit to Git (and what to ignore)
+
+When working with Java build tools, a lot of temporary files are generated locally. You must **never commit these to Git** because they bloat the repository and cause conflicts.
+
+**Files you SHOULD commit:**
+- `build.gradle.kts` and `settings.gradle.kts` (your build instructions)
+- `gradle.properties` (local project configuration)
+- `gradlew` and `gradlew.bat` (wrapper scripts so others can run gradle without installing it)
+- `gradle/wrapper/gradle-wrapper.jar` and `gradle-wrapper.properties`
+- `src/` (all your actual code)
+
+**Files you MUST IGNORE (add to `.gitignore`):**
+- `.gradle/` — This is a hidden folder where Gradle caches downloaded dependencies, build outputs, and daemon state. It is massive and specific to your computer.
+- `build/` — The compiled output (e.g., your `.class` and `.jar` files). Git is for source code, not compiled output.
+- `.mvn/` and `target/` — If you switched from Maven to Gradle, these are leftovers.
+
+If you accidentally commit `.gradle/`, you can un-track it without deleting it from your computer by running:
+`git rm -r --cached .gradle`
+
+---
+
+## 44. The hidden danger of Spring Security dependency
+
+Spring Boot embraces "convention over configuration," which means it automatically configures things based on what dependencies are on your classpath.
+
+If you add:
+```kotlin
+implementation("org.springframework.boot:spring-boot-starter-security")
+```
+Spring Boot assumes you want a secure application. Without any extra code, it instantly locks down **every single endpoint** behind HTTP Basic Authentication. It even generates a random password and prints it to the console when you start the app: `Using generated security password: d9f15...`
+
+If your API uses its own custom authentication (like checking `x-transflowId` and `x-key` headers), you don't need this dependency. Simply removing it from `build.gradle.kts` disables the automatic Basic Auth lockdown.
+
+---
+
 ## Things this project taught you
 
 **Java fundamentals**
@@ -1268,6 +1316,7 @@ To fix this, you either:
 - `@RestController` automatically serialises return values to JSON; without it you get HTML
 - `ResponseEntity` gives you control over HTTP status codes, not just the response body
 - `required = false` on `@RequestHeader` lets you control your own error responses instead of Spring's generic 400
+- The hidden danger of Spring Security: adding the dependency automatically locks down all endpoints with Basic Auth
 
 **Architecture**
 - Why layering (controller → service → store) makes code maintainable — each layer has one job
@@ -1292,6 +1341,8 @@ To fix this, you either:
 - Feature-based packaging (`subscriptions/`, `transactions/`) keeps related code together; layer-based packaging (`controllers/`, `services/`) splits it apart
 - `application.properties` is for config that changes per environment — never hardcode delays, URLs, or secrets in Java source files
 - Gradle heavily depends on internal Java APIs, meaning every Gradle version has a maximum supported Java version. Using an unsupported Java version causes immediate crashes.
+- Dependencies live in the `build.gradle.kts` `dependencies {}` block.
+- Never commit `.gradle/` or `build/` to Git, but do commit your Gradle wrapper scripts and `.properties` so others can build easily.
 
 **Async and callbacks**
 - Why `@Async` only works when called from **outside** the class — Spring uses a proxy, and internal calls bypass it
