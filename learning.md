@@ -1237,6 +1237,21 @@ You can also have `application-dev.properties`, `application-prod.properties` fo
 
 Never hardcode values like delay times or URLs directly in Java code. Put them in `application.properties` so they can be changed without recompiling.
 
+
+---
+
+## 41. Gradle and Java Version Compatibility
+
+Even though Java is designed to be backwards compatible, Gradle actually hooks deeply into Java's internal APIs to compile code, manage its daemon process, and read bytecode. 
+
+Whenever a new major version of Java is released (like Java 25), it brings changes to the bytecode format and internal APIs. Because of this, **every specific version of Gradle has a maximum supported Java version**. 
+
+If your project's Gradle wrapper (e.g., `8.14`) was released before a new Java version (like Java 25) was fully supported, starting the Gradle daemon with that newer Java version will cause an immediate crash (often showing a cryptic version string error like `25.0.2`). 
+
+To fix this, you either:
+1. Upgrade the Gradle wrapper to a newer version that supports the Java version you have installed (`./gradlew wrapper --gradle-version <newer-version>`).
+2. Force Gradle to use an older, compatible Java version (like the Long-Term Support Java 21) by setting `org.gradle.java.home=/path/to/java-21` in your `gradle.properties`.
+
 ---
 
 ## Things this project taught you
@@ -1276,6 +1291,7 @@ Never hardcode values like delay times or URLs directly in Java code. Put them i
 - The Gradle wrapper (`./gradlew`) pins a specific Gradle version so every developer and CI server builds identically — no global install needed
 - Feature-based packaging (`subscriptions/`, `transactions/`) keeps related code together; layer-based packaging (`controllers/`, `services/`) splits it apart
 - `application.properties` is for config that changes per environment — never hardcode delays, URLs, or secrets in Java source files
+- Gradle heavily depends on internal Java APIs, meaning every Gradle version has a maximum supported Java version. Using an unsupported Java version causes immediate crashes.
 
 **Async and callbacks**
 - Why `@Async` only works when called from **outside** the class — Spring uses a proxy, and internal calls bypass it
@@ -1284,5 +1300,7 @@ Never hardcode values like delay times or URLs directly in Java code. Put them i
 - How to simulate realistic API behaviour (delays, staged callbacks) without a real payment network
 
 ---
+
+### implement the changes on java
 
 *This guide reflects the state of the project as of May 2026.*
