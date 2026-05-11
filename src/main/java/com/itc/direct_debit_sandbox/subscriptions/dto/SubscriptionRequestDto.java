@@ -1,4 +1,5 @@
 package com.itc.direct_debit_sandbox.subscriptions.dto;
+import com.itc.direct_debit_sandbox.subscriptions.Channel;
 import com.itc.direct_debit_sandbox.subscriptions.FrequencyType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -35,8 +36,10 @@ public class SubscriptionRequestDto {
     @NotBlank
     private String debitTime;
 
-    @NotBlank
-    private String channel;
+    // @NotNull ensures the value must be one of the Channel enum constants.
+    // Jackson automatically rejects unrecognized strings with a 400.
+    @NotNull
+    private Channel channel;
 
     @NotBlank
     private String currency;

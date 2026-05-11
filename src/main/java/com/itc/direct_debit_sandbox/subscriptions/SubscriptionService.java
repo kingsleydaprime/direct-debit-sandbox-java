@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.*;
 
 @Service
@@ -37,6 +38,41 @@ public class SubscriptionService {
         return null; // null means headers are valid, continue processing
     }
 
+    // ─── DEBIT DAY VALIDATION ────────────────────────────────────────────────
+    // DAILY → must be "1"
+    // WEEKLY → 1–7
+    // MONTHLY / YEARLY → 1–28
+    // Returns an error map if invalid, null if OK.
+
+    private Map<String, Object> validateDebitDay(FrequencyType frequency, String debitDay) {
+        if (frequency == null || debitDay == null || debitDay.isBlank()) return null;
+        try {
+            int day = Integer.parseInt(debitDay.trim());
+            boolean valid = switch (frequency) {
+                case DAILY   -> day == 1;
+                case WEEKLY  -> day >= 1 && day <= 7;
+                case MONTHLY, YEARLY -> day >= 1 && day <= 28;
+            };
+            if (!valid) {
+                String allowed = switch (frequency) {
+                    case DAILY   -> "must be 1 for DAILY frequency";
+                    case WEEKLY  -> "must be between 1 and 7 for WEEKLY frequency";
+                    case MONTHLY, YEARLY -> "must be between 1 and 28 for " + frequency + " frequency";
+                };
+                Map<String, Object> error = new HashMap<>();
+                error.put("responseCode",    "100");
+                error.put("responseMessage", "Invalid debitDay: " + allowed);
+                return error;
+            }
+        } catch (NumberFormatException e) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("responseCode",    "100");
+            error.put("responseMessage", "debitDay must be a numeric value");
+            return error;
+        }
+        return null;
+    }
+
     // ─── SUBSCRIBE ───────────────────────────────────────────────────────────
 
     public Map<String, Object> subscribe(
@@ -56,14 +92,35 @@ public class SubscriptionService {
             return duplicate;
         }
 
+        // Guard: endDate must be strictly after startDate when both are provided
+        if (req.getEndDate() != null && !req.getEndDate().isBlank()) {
+            try {
+                LocalDate start = LocalDate.parse(req.getStartDate());
+                LocalDate end   = LocalDate.parse(req.getEndDate());
+                if (!end.isAfter(start)) {
+                    Map<String, Object> dateError = new HashMap<>();
+                    dateError.put("responseCode",    "100");
+                    dateError.put("responseMessage", "endDate must be after startDate");
+                    return dateError;
+                }
+            } catch (Exception e) {
+                Map<String, Object> dateError = new HashMap<>();
+                dateError.put("responseCode",    "100");
+                dateError.put("responseMessage", "Invalid date format. Expected yyyy-MM-dd");
+                return dateError;
+            }
+        }
+
+        // Guard: debitDay must be valid for the given frequencyType
+        Map<String, Object> debitDayError = validateDebitDay(req.getFrequencyType(), req.getDebitDay());
+        if (debitDayError != null) return debitDayError;
+
         // Generate unique IDs for this subscription
-        String subscriptionId = "SUB" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
-        String mandateId      = "MAND" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
+        String mandateId = UUID.randomUUID().toString();
 
         // Build the record that will live in the in-memory store
         SubscriptionRecord record = SubscriptionRecord.builder()
-                .subscriptionId(subscriptionId)
-                .mandateId(mandateId)
+                .id(mandateId)
                 .merchantId(req.getMerchantId())
                 .productId(req.getProductId())
                 .debitAccount(req.getDebitAccount())
@@ -74,7 +131,7 @@ public class SubscriptionService {
                 .debitDay(req.getDebitDay())
                 .debitTime(req.getDebitTime())
                 .referenceNo(req.getReferenceNo())
-                .channel(req.getChannel())
+                .channel(req.getChannel().name())
                 .currency(req.getCurrency())
                 .country(country)
                 .debitNotificationAccount(req.getDebitNotificationAccount())
@@ -86,7 +143,7 @@ public class SubscriptionService {
                 .createdAt(Instant.now().toString())
                 .build();
 
-        store.saveSubscription(subscriptionId, record);
+        store.createSubscription(mandateId, record);
 
         // Fire preapproval callback then transaction callback asynchronously
         callbackService.fireCallbacks(record);
@@ -114,6 +171,13 @@ public class SubscriptionService {
             return notFound;
         }
 
+        // Validate debitDay against the effective frequency after the update
+        FrequencyType effectiveFrequency = req.getFrequencyType() != null ? req.getFrequencyType()
+                : existing.getFrequencyType();
+        String effectiveDebitDay = req.getDebitDay() != null ? req.getDebitDay() : existing.getDebitDay();
+        Map<String, Object> debitDayError = validateDebitDay(effectiveFrequency, effectiveDebitDay);
+        if (debitDayError != null) return debitDayError;
+
         // Only overwrite fields that were actually sent in the request (not null).
         // This matches the real API behaviour: "only changed fields need to be provided."
         if (req.getDebitAmount()            != null) existing.setDebitAmount(req.getDebitAmount());
@@ -122,11 +186,13 @@ public class SubscriptionService {
         if (req.getFrequencyType()          != null) existing.setFrequencyType(req.getFrequencyType());
         if (req.getStartDate()              != null) existing.setStartDate(req.getStartDate());
         if (req.getEndDate()                != null) existing.setEndDate(req.getEndDate());
-        if (req.getChannel()                != null) existing.setChannel(req.getChannel());
+        if (req.getChannel()                != null) existing.setChannel(req.getChannel().name());
         if (req.getCurrency()               != null) existing.setCurrency(req.getCurrency());
         if (req.getDebitNotificationAccount() != null) existing.setDebitNotificationAccount(req.getDebitNotificationAccount());
 
-        store.saveSubscription(req.getSubscriptionId(), existing);
+        store.updateSubscription(req.getSubscriptionId(), existing);
+
+        callbackService.fireCallbacks(existing);
 
         Map<String, Object> response = new HashMap<>();
         response.put("responseCode",    "03");

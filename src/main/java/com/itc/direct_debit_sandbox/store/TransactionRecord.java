@@ -6,9 +6,8 @@ import lombok.Data;
 @Data
 @Builder
 public class TransactionRecord {
-    private String transactionId;
+    private String id;
     private String networkTransactionId;
-    private String mandateId;
     private String subscriptionId;
     private String merchantId;
     private String productId;

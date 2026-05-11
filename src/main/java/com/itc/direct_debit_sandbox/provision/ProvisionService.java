@@ -33,6 +33,8 @@ public class ProvisionService {
                 .productId(req.getProductId())
                 .callbackUrl(req.getCallbackUrl())
                 // If caller didn't send a config field, keep the previous value (or null for new registrations)
+                .merchantType(req.getMerchantType() != null ? req.getMerchantType()
+                        : (existing != null ? existing.getMerchantType() : null))
                 .retryAttempts(req.getRetryAttempts() != null ? req.getRetryAttempts()
                         : (existing != null ? existing.getRetryAttempts() : null))
                 .skipFactor(req.getSkipFactor() != null ? req.getSkipFactor()

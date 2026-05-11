@@ -9,8 +9,8 @@ import java.util.List;
 @Data
 @Builder
 public class SubscriptionRecord {
-    private String subscriptionId;
-    private String mandateId;
+    private String id;
+    // private String mandateId;
     private String merchantId;
     private String productId;
     private String debitAccount;

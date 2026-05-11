@@ -8,7 +8,8 @@ import java.util.List;
  */
 public interface Store {
     // Subscription methods
-    void saveSubscription(String subscriptionId, SubscriptionRecord record);
+    void createSubscription(String subscriptionId, SubscriptionRecord record);
+    void updateSubscription(String subscriptionId, SubscriptionRecord record);
     SubscriptionRecord getSubscription(String subscriptionId);
     SubscriptionRecord getSubscriptionByReference(String referenceNo);
     List<SubscriptionRecord> getSubscriptionsByAccount(String debitAccount, String productId);
@@ -23,4 +24,11 @@ public interface Store {
     // Provision methods
     void saveProvision(String merchantId, String productId, ProvisionRecord record);
     ProvisionRecord getProvision(String merchantId, String productId);
+
+    // PreAuthorization methods
+    void createPreAuth(String preApprovalId, PreAuthRecord record);
+    PreAuthRecord getPreAuth(String preApprovalId);
+    PreAuthRecord getPreAuthByReference(String referenceNo);
+    PreAuthRecord getPreAuthByMandateId(String mandateId);
+    void updatePreAuthStatus(String preApprovalId, String status);
 }

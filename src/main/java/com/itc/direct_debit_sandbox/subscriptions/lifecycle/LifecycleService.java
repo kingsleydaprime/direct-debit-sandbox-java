@@ -106,8 +106,13 @@ public class LifecycleService {
     }
 
     /**
-     * Trigger a debit for a subscription.
-     * Returns response code "03" immediately, then fires async callback.
+     * Trigger a debit for a subscription whose automatic retries have been exhausted.
+     *
+     * This endpoint is only meaningful once all automatic retry attempts have completed
+     * without success. If there is still a PROCESSING transaction for this reference it
+     * means the system is still running scheduled retries — we block the call and tell
+     * the caller to wait. Once all retries have resolved (status FAILED or no record
+     * exists yet), the manual trigger is allowed.
      */
     public ApiResponseDto<?> triggerDebit(TriggerDebitRequest request) {
         SubscriptionRecord record = store.getSubscriptionByReference(request.getReferenceId());
@@ -117,23 +122,23 @@ public class LifecycleService {
                     .responseMessage("Subscription not found")
                     .build();
         }
-        // Immediate response indicating processing started
-        ApiResponseDto<?> immediateResponse = ApiResponseDto.builder()
+
+        // Block the call if automatic retries are still in progress for this reference.
+        // The transaction record for a subscription is stored under the same referenceNo key.
+        TransactionRecord existingTx = store.getTransaction(request.getReferenceId());
+        if (existingTx != null && "PROCESSING".equalsIgnoreCase(existingTx.getStatus())) {
+            return ApiResponseDto.builder()
+                    .responseCode("100")
+                    .responseMessage("Automatic retries are still in progress. Please wait for them to complete before triggering manually.")
+                    .build();
+        }
+
+        callbackService.fireTransactionCallback(record);
+
+        return ApiResponseDto.builder()
                 .responseCode("03")
                 .responseMessage("Transaction processing started")
                 .build();
-        // Resolve response code via ScenarioEngine (using debit account if available)
-        String resolvedCode;
-        try {
-            String debitAccount = record.getDebitAccount() != null ? record.getDebitAccount() : "";
-            resolvedCode = scenarioEngine.resolveResponseCode(debitAccount);
-        } catch (Exception e) {
-            resolvedCode = "01"; // fallback success code
-        }
-        // Fire callback asynchronously (Person 3 code integrated)
-        callbackService.fireTransactionCallback(record);
-
-        return immediateResponse;
     }
 
     /**
@@ -158,19 +163,17 @@ public class LifecycleService {
         }
 
         // 2. Generate transactionId and mandateId
-        String transactionId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         String mandateId = "MAND" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
 
         // 3. Save TransactionRecord to the store with status PROCESSING
         TransactionRecord record = TransactionRecord.builder()
-                .transactionId(transactionId)
-                .mandateId(mandateId)
+                .id(mandateId)
                 .merchantId(request.getMerchantId())
                 .productId(request.getProductId())
                 .debitAccount(request.getDebitAccount())
                 .debitAmount(request.getDebitAmount())
                 .reference(request.getReferenceNo())
-                .channel(request.getChannel())
+                .channel(request.getChannel() != null ? request.getChannel().name() : null)
                 .status("PROCESSING")
                 .timestamp(LocalDateTime.now().toString())
                 .build();
