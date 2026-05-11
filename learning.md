@@ -55,6 +55,11 @@ If you see a piece of syntax in a file and wonder "what does that even mean?" �
 45. [Secondary indexes — fast lookups at scale](#45-secondary-indexes--fast-lookups-at-scale)
 46. [Separating create from update in the store](#46-separating-create-from-update-in-the-store)
 47. [Data normalization — keeping your data lean](#47-data-normalization--keeping-your-data-lean)
+48. [Enum-based channel validation](#48-enum-based-channel-validation)
+49. [startDate / endDate validation](#49-startdate--enddate-validation)
+50. [The difference between subscription trigger-debit and mandate trigger-debit](#50-the-difference-between-subscription-trigger-debit-and-mandate-trigger-debit)
+51. [The Preauthorization feature: how it fits together](#51-the-preauthorization-feature-how-it-fits-together)
+52. [Why the same callback payload works for both subscriptions and preauths](#52-why-the-same-callback-payload-works-for-both-subscriptions-and-preauths)
 
 ---
 
@@ -1577,6 +1582,223 @@ The right answer is almost always: **normalize by default**, then **denormalize 
 - How thread pools work — core size, max size, queue capacity
 - Why async matters for API responsiveness — return immediately, process in the background
 - How to simulate realistic API behaviour (delays, staged callbacks) without a real payment network
+
+---
+
+## 48. Enum-based channel validation
+
+Before this change, `channel` in `SubscriptionRequestDto` was a plain `String`. That meant any value — `"MTN"`, `"VODAFONE"`, `"banana"` — was accepted without complaint. The only supported channels are `MTN`, `TELECEL`, `AT`, `AIRTEL`, `BANK`, and `CARD`.
+
+The fix: change the field from `String` to a `Channel` enum.
+
+```java
+public enum Channel {
+    MTN, TELECEL, AT, AIRTEL, BANK, CARD
+}
+```
+
+```java
+// In SubscriptionRequestDto
+@NotNull
+private Channel channel;   // was: @NotBlank private String channel
+```
+
+**Why this works automatically:**
+
+When Jackson (Spring's JSON deserializer) reads `"channel": "MTN"` from the request body, it maps the string `"MTN"` to `Channel.MTN`. If the string doesn't match any enum constant, Jackson throws a `HttpMessageNotReadableException` and Spring returns a `400 Bad Request` — no manual validation code required.
+
+**Storing it:**
+
+The `SubscriptionRecord` (and other store models) keeps `channel` as a plain `String`, because the store is just data storage and doesn't need to know about enum types. When the service writes the record it calls `.name()` to convert the enum back to a string:
+
+```java
+.channel(req.getChannel().name())   // Channel.MTN → "MTN"
+```
+
+When updating (where channel is optional), guard for null first:
+
+```java
+if (req.getChannel() != null) existing.setChannel(req.getChannel().name());
+```
+
+**The pattern generalises:** any field with a fixed set of values should be an enum in the DTO. You get free validation, IDE autocomplete, and compile-time safety all at once.
+
+---
+
+## 49. startDate / endDate validation
+
+The `endDate` field on a subscription is optional (no end means "run forever"). But when it is provided, it must be strictly after `startDate`. This is a **business rule**, not a framework constraint, so it can't be expressed with a `@NotNull` or `@NotBlank` annotation — it has to be enforced in the service.
+
+```java
+if (req.getEndDate() != null && !req.getEndDate().isBlank()) {
+    try {
+        LocalDate start = LocalDate.parse(req.getStartDate());
+        LocalDate end   = LocalDate.parse(req.getEndDate());
+        if (!end.isAfter(start)) {
+            // return error: "endDate must be after startDate"
+        }
+    } catch (Exception e) {
+        // return error: "Invalid date format. Expected yyyy-MM-dd"
+    }
+}
+```
+
+`LocalDate.parse()` expects the ISO-8601 format `yyyy-MM-dd`. If the string doesn't match, it throws a `DateTimeParseException` — which we catch and turn into a readable error response.
+
+`isAfter(start)` returns true only when `end` is strictly later than `start`. Equal dates are rejected (a subscription that starts and ends on the same day is meaningless).
+
+The same rule applies to preauthorization mandates — and there `endDate` is required (not optional), so we always run the check.
+
+---
+
+## 50. The difference between subscription trigger-debit and mandate trigger-debit
+
+This is the most important conceptual distinction in the whole API.
+
+**Subscription trigger-debit** (`POST /subscription/trigger-debit`)
+
+A subscription runs automatic debits on a schedule. When a scheduled debit fails, the system retries it automatically a number of times (configured by `retryAttempts`). The `trigger-debit` endpoint only makes sense *after all those retries have finished and they all failed*. It lets the merchant make one last manual attempt. 
+
+If you call it while retries are still in progress (transaction status is `PROCESSING`), the sandbox blocks the call:
+
+```json
+{ "responseCode": "100", "responseMessage": "Automatic retries are still in progress..." }
+```
+
+The sandbox checks this by looking up the `TransactionRecord` stored under the subscription's `referenceNo`:
+
+```java
+TransactionRecord existingTx = store.getTransaction(request.getReferenceId());
+if (existingTx != null && "PROCESSING".equalsIgnoreCase(existingTx.getStatus())) {
+    return error("Automatic retries are still in progress...");
+}
+```
+
+**Mandate trigger-debit** (`POST /mandate/trigger-debit`)
+
+A preauthorization is not a schedule — it is a *standing permission*. The merchant can debit the customer at any time within the `startDate`–`endDate` window. There is no automatic schedule, no retry loop, no concept of "retries in progress". Every call to `/mandate/trigger-debit` is a deliberate, on-demand action by the merchant.
+
+Because each mandate debit is independent, the caller supplies the specific debit details (amount, narration, reference) in the request body — unlike subscription trigger-debit where those details already live in the subscription record.
+
+The body difference makes this concrete:
+
+```
+Subscription trigger:   { "referenceId": "REF_001", "productId": "..." }
+Mandate trigger:        { "mandateId": "...", "productId": "...", "debitAmount": "...",
+                          "narration": "...", "referenceNo": "...", "debitAccount": "...",
+                          "currency": "..." }
+```
+
+One looks up an existing record and retries it. The other starts a fresh debit with parameters supplied right now.
+
+---
+
+## 51. The Preauthorization feature: how it fits together
+
+A preauth has five operations and they use three different IDs. Understanding which ID each operation uses is the key to not getting confused.
+
+| Operation | Endpoint | Lookup key |
+|---|---|---|
+| Create | `POST /pre-authorization/authorize` | — (creates IDs) |
+| Trigger debit | `POST /mandate/trigger-debit` | `mandateId` (from preapproval callback) |
+| Check status | `POST /mandate/check-status` | `reference` (= referenceNo from creation) |
+| Get details | `POST /direct-debit/pre-authorization/retrieve/details` | `referenceId` (= referenceNo) |
+| Cancel | `POST /pre-authorization/cancel` | `preApprovalId` (from preapproval callback) |
+
+**Why three different IDs?**
+
+- `preApprovalId` — the internal ID for the mandate record itself. Used for cancellation because cancellation is a direct operation on the mandate, not on a transaction.
+- `mandateId` — the ID that represents "permission to debit". It appears in callbacks and is what the trigger uses to prove the mandate was set up.
+- `referenceNo` — the third-party reference supplied at creation. It's the merchant's own identifier and is how they look up their own records.
+
+The sandbox stores `PreAuthRecord` under `preApprovalId` as the primary key, then maintains two secondary indexes so all three lookup paths resolve in O(1):
+
+```
+preAuthReferenceIndex:  referenceNo  → preApprovalId
+preAuthMandateIndex:    mandateId    → preApprovalId
+```
+
+**The lifecycle:**
+
+```
+createPreAuth()
+  ↓ (stores record, fires preapproval callback after 2s)
+  ↓ callback contains: preApprovalId, mandateId
+  ↓
+triggerMandateDebit(mandateId, ...)
+  ↓ (validates window, fires transaction callback after 5s)
+  ↓
+cancelPreAuth(preApprovalId, ...)
+  ↓ status → CANCELLED
+```
+
+**Guards on trigger:**
+- Status must be `ACTIVE` (not cancelled)
+- Today must be ≥ `startDate` (window hasn't started yet)
+- Today must be ≤ `endDate` (window has not expired)
+
+**Guards on cancel:**
+- Status must be `ACTIVE`
+- `debitAccount`, `channel`, and `country` must match the stored record — this prevents one merchant from cancelling another merchant's mandate
+
+---
+
+## 52. Why the same callback payload works for both subscriptions and preauths
+
+Both `fireCallbacks()` (subscription) and `firePreAuthCallbacks()` (preauth) send a `PreapprovalCallbackPayloadDto` to the merchant's webhook. The payload structure is identical because the real ITC API uses the same callback format for both — what changes is only the source of the data.
+
+For subscriptions the mandate is an implied consequence of setting up a schedule. For preauths the mandate is the primary thing being set up. Both produce a `mandateId` and fire the same preapproval event.
+
+The transaction callback works the same way too. Whether the debit was triggered by a subscription schedule or a merchant calling `/mandate/trigger-debit`, the merchant receives a `TransactionCallbackPayloadDto` with the same fields.
+
+---
+
+---
+
+## 53. Merchant type enforcement on preauth endpoints
+
+The `MerchantType` enum (values: `SUBSCRIPTIONS_ONLY`, `HYBRID`, `PREAUTHORIZED_ONLY`) is stored on `ProvisionRecord` when the merchant provisions. This determines which API operations they may use.
+
+**Rule:** `/pre-authorization/authorize` and `/mandate/trigger-debit` are only available to `PREAUTHORIZED_ONLY` merchants. `HYBRID` and `SUBSCRIPTIONS_ONLY` merchants are blocked with a `100` response.
+
+The check lives in a private `checkPreAuthMerchantType(merchantId, productId)` helper in `PreAuthService`. It is called:
+
+- In `createPreAuth()` — immediately after header validation, before any other logic.
+- In `triggerMandateDebit()` — after the preAuth record is found (because the request only carries `mandateId`, so we need the stored record to know `merchantId`/`productId`).
+
+```java
+ProvisionRecord provision = store.getProvision(merchantId, productId);
+if (provision == null || provision.getMerchantType() == null) {
+    return error("Merchant type not configured...");
+}
+if (provision.getMerchantType() != MerchantType.PREAUTHORIZED_ONLY) {
+    return error("This operation is only available to PREAUTHORIZED_ONLY merchants");
+}
+```
+
+Other preauth operations (check-status, retrieve-details, cancel) do **not** enforce type — they are read/cancel operations that any merchant with a valid record can use.
+
+---
+
+## 54. debitDay validation by frequencyType
+
+`debitDay` specifies which unit within the frequency cycle to debit on. Its valid range depends on `frequencyType`:
+
+| frequencyType | allowed debitDay |
+|---|---|
+| DAILY | 1 (only valid value — "every day") |
+| WEEKLY | 1–7 (1 = Monday … 7 = Sunday) |
+| MONTHLY | 1–28 |
+| YEARLY | 1–28 |
+
+**Why 1–28 for MONTHLY/YEARLY?** Capping at 28 avoids the February edge case — day 29/30/31 does not exist in all months. The real API applies the same cap.
+
+**Where it is validated:**
+
+- `SubscriptionService.subscribe()` — after the date check, before the record is built.
+- `SubscriptionService.update()` — before applying field updates. The validation uses the *effective* frequency and debitDay: the new value if provided in the request, the stored value otherwise. This catches the case where the merchant changes `frequencyType` but does not change `debitDay`, leaving a value that was valid for the old frequency but is out of range for the new one (e.g., `debitDay=20` is valid for MONTHLY but not for WEEKLY).
+
+The helper is `validateDebitDay(FrequencyType frequency, String debitDay)`. It parses `debitDay` as an integer and uses a `switch` expression over `FrequencyType`. Returns `null` on success; an error map with code `"100"` on failure.
 
 ---
 

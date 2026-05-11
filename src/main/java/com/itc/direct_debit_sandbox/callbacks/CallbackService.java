@@ -3,7 +3,9 @@ package com.itc.direct_debit_sandbox.callbacks;
 import com.itc.direct_debit_sandbox.callbacks.dto.PreapprovalCallbackPayloadDto;
 import com.itc.direct_debit_sandbox.callbacks.dto.TransactionCallbackPayloadDto;
 import com.itc.direct_debit_sandbox.config.SandboxConfig;
+import com.itc.direct_debit_sandbox.preauthorization.dto.TriggerMandateDebitRequest;
 import com.itc.direct_debit_sandbox.scenarios.ScenarioEngine;
+import com.itc.direct_debit_sandbox.store.PreAuthRecord;
 import com.itc.direct_debit_sandbox.store.ProvisionRecord;
 import com.itc.direct_debit_sandbox.store.Store;
 import com.itc.direct_debit_sandbox.store.SubscriptionRecord;
@@ -145,6 +147,100 @@ public class CallbackService {
         sendCallback(url, payload);
         log.info("One-time Transaction callback fired for reference: {}, responseCode: {}",
                 record.getReference(), responseCode);
+    }
+
+    // ─── PREAUTH CALLBACKS ───────────────────────────────────────────────────
+
+    /**
+     * Fires a preapproval callback for a newly created preauthorization mandate.
+     * Preauth creation does NOT fire an immediate transaction callback — the debit
+     * only happens when the merchant later calls /mandate/trigger-debit.
+     */
+    @Async("callbackExecutor")
+    public void firePreAuthCallbacks(PreAuthRecord record) {
+        try {
+            Thread.sleep(sandboxConfig.getCallbackDelayPreapproval());
+
+            PreapprovalCallbackPayloadDto payload = PreapprovalCallbackPayloadDto.builder()
+                    .responseCode("01")
+                    .responseMessage("Recurring subscription has been scheduled successfully")
+                    .mandateId(record.getMandateId())
+                    .merchantId(record.getMerchantId())
+                    .productId(record.getProductId())
+                    .debitAccount(record.getDebitAccount())
+                    .reference(record.getReferenceNo())
+                    .channel(record.getChannel())
+                    .country(record.getCountryId())
+                    .build();
+
+            String url = resolveCallbackUrl(record.getMerchantId(), record.getProductId(), record.getCallbackUrl());
+            sendCallback(url, payload);
+            log.info("PreAuth preapproval callback fired for mandateId: {}", record.getMandateId());
+        } catch (InterruptedException e) {
+            log.error("PreAuth callback thread interrupted: {}", e.getMessage());
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Fires a transaction callback for a mandate debit triggered via /mandate/trigger-debit.
+     * The debit details come from the trigger request (amount, account, narration, reference)
+     * not from the preauth record itself, since each trigger can have different parameters.
+     */
+    @Async("callbackExecutor")
+    public void fireMandateTransactionCallback(PreAuthRecord preAuth, TriggerMandateDebitRequest req) {
+        try {
+            Thread.sleep(sandboxConfig.getCallbackDelayTransaction());
+
+            String responseCode    = scenarioEngine.resolveResponseCode(req.getDebitAccount());
+            String responseMessage = scenarioEngine.resolveResponseMessage(responseCode);
+            String transactionId   = UUID.randomUUID().toString();
+            String timestamp       = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+
+            TransactionCallbackPayloadDto payload = TransactionCallbackPayloadDto.builder()
+                    .responseCode(responseCode)
+                    .responseMessage(responseMessage)
+                    .debitOrderTransactionId(transactionId)
+                    .networkTransactionId(UUID.randomUUID().toString())
+                    .merchantId(preAuth.getMerchantId())
+                    .productId(preAuth.getProductId())
+                    .mandateId(preAuth.getMandateId())
+                    .debitAccount(req.getDebitAccount())
+                    .debitAmount(req.getDebitAmount())
+                    .reference(req.getReferenceNo())
+                    .narration(req.getNarration())
+                    .timestamp(timestamp)
+                    .channel(preAuth.getChannel())
+                    .charge("0.00")
+                    .build();
+
+            // Persist the transaction so check-status works
+            store.saveTransaction(req.getReferenceNo(), TransactionRecord.builder()
+                    .id(transactionId)
+                    .networkTransactionId(payload.getNetworkTransactionId())
+                    .subscriptionId(preAuth.getPreApprovalId())
+                    .merchantId(preAuth.getMerchantId())
+                    .productId(preAuth.getProductId())
+                    .debitAccount(req.getDebitAccount())
+                    .debitAmount(req.getDebitAmount())
+                    .reference(req.getReferenceNo())
+                    .narration(req.getNarration())
+                    .channel(preAuth.getChannel())
+                    .responseCode(responseCode)
+                    .responseMessage(responseMessage)
+                    .timestamp(timestamp)
+                    .charge("0.00")
+                    .status(responseCode.equals("01") ? "SUCCESS" : "FAILED")
+                    .build());
+
+            String url = resolveCallbackUrl(preAuth.getMerchantId(), preAuth.getProductId(), preAuth.getCallbackUrl());
+            sendCallback(url, payload);
+            log.info("Mandate transaction callback fired for mandateId: {}, responseCode: {}",
+                    preAuth.getMandateId(), responseCode);
+        } catch (InterruptedException e) {
+            log.error("Mandate transaction callback thread interrupted: {}", e.getMessage());
+            Thread.currentThread().interrupt();
+        }
     }
 
     // Look up the registered callbackUrl for a merchant+product from the provision store.

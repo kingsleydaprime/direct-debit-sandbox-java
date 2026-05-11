@@ -16,9 +16,16 @@ public class InMemoryStore implements Store {
     // Key = "merchantId:productId"
     private final Map<String, ProvisionRecord>    provisions         = new ConcurrentHashMap<>();
 
-    // Secondary indexes for O(1) lookups
+    // PreAuth primary map: preApprovalId → record
+    private final Map<String, PreAuthRecord> preAuths = new ConcurrentHashMap<>();
+
+    // Secondary indexes for subscription O(1) lookups
     private final Map<String, String> referenceIndex      = new ConcurrentHashMap<>(); // referenceNo → subscriptionId
     private final Map<String, String> accountProductIndex = new ConcurrentHashMap<>(); // "debitAccount:productId" → subscriptionId
+
+    // Secondary indexes for preAuth O(1) lookups
+    private final Map<String, String> preAuthReferenceIndex = new ConcurrentHashMap<>(); // referenceNo  → preApprovalId
+    private final Map<String, String> preAuthMandateIndex   = new ConcurrentHashMap<>(); // mandateId    → preApprovalId
 
     // Subscription methods
     public void createSubscription(String subscriptionId, SubscriptionRecord record) {
@@ -79,17 +86,6 @@ public class InMemoryStore implements Store {
         return transactions.containsKey(reference);
     }
 
-    // Debug
-    public Map<String, Object> getSnapshot() {
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("subscriptions", subscriptions);
-        snapshot.put("transactions", transactions);
-        snapshot.put("provisions", provisions);
-        snapshot.put("referenceIndex", referenceIndex);
-        snapshot.put("accountProductIndex", accountProductIndex);
-        return snapshot;
-    }
-
     // Provision methods
     public void saveProvision(String merchantId, String productId, ProvisionRecord record) {
         provisions.put(merchantId + ":" + productId, record);
@@ -97,5 +93,53 @@ public class InMemoryStore implements Store {
 
     public ProvisionRecord getProvision(String merchantId, String productId) {
         return provisions.get(merchantId + ":" + productId);
+    }
+
+    // PreAuthorization methods
+
+    public void createPreAuth(String preApprovalId, PreAuthRecord record) {
+        preAuths.put(preApprovalId, record);
+        if (record.getReferenceNo() != null) {
+            preAuthReferenceIndex.put(record.getReferenceNo(), preApprovalId);
+        }
+        if (record.getMandateId() != null) {
+            preAuthMandateIndex.put(record.getMandateId(), preApprovalId);
+        }
+    }
+
+    public PreAuthRecord getPreAuth(String preApprovalId) {
+        return preAuths.get(preApprovalId);
+    }
+
+    public PreAuthRecord getPreAuthByReference(String referenceNo) {
+        String id = preAuthReferenceIndex.get(referenceNo);
+        return id != null ? preAuths.get(id) : null;
+    }
+
+    public PreAuthRecord getPreAuthByMandateId(String mandateId) {
+        String id = preAuthMandateIndex.get(mandateId);
+        return id != null ? preAuths.get(id) : null;
+    }
+
+    public void updatePreAuthStatus(String preApprovalId, String status) {
+        PreAuthRecord record = preAuths.get(preApprovalId);
+        if (record != null) {
+            record.setStatus(status);
+            record.setUpdatedAt(java.time.Instant.now().toString());
+        }
+    }
+
+    // Updated snapshot to include preauth data
+    public Map<String, Object> getSnapshot() {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("subscriptions", subscriptions);
+        snapshot.put("transactions", transactions);
+        snapshot.put("provisions", provisions);
+        snapshot.put("preAuths", preAuths);
+        snapshot.put("referenceIndex", referenceIndex);
+        snapshot.put("accountProductIndex", accountProductIndex);
+        snapshot.put("preAuthReferenceIndex", preAuthReferenceIndex);
+        snapshot.put("preAuthMandateIndex", preAuthMandateIndex);
+        return snapshot;
     }
 }

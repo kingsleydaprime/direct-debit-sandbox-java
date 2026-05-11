@@ -1,5 +1,6 @@
 package com.itc.direct_debit_sandbox.subscriptions.lifecycle.dto;
 
+import com.itc.direct_debit_sandbox.subscriptions.Channel;
 import lombok.Data;
 
 @Data
@@ -11,7 +12,7 @@ public class ScheduleDebitRequest {
     private String debitTime;
     private String debitNotificationAccount;
     private String referenceNo;
-    private String channel;
+    private Channel channel;
     private String currency;
     private String debitAccount;
     private String debitAmount;

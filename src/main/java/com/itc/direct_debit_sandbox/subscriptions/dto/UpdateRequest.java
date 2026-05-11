@@ -3,6 +3,7 @@ package com.itc.direct_debit_sandbox.subscriptions.dto;
 import java.util.List;
 
 import com.itc.direct_debit_sandbox.store.ConfigurationItem;
+import com.itc.direct_debit_sandbox.subscriptions.Channel;
 import com.itc.direct_debit_sandbox.subscriptions.FrequencyType;
 
 // import jakarta.validation.constraints.NotBlank;
@@ -41,7 +42,7 @@ private String subscriptionId;
     private String debitTime;
 
     
-    private String channel;
+    private Channel channel;
 
     
     private String currency;
