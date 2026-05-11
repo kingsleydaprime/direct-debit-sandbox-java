@@ -1,0 +1,3 @@
+com\itc\direct_debit_sandbox\subscriptions\SubscriptionService.class
+com\itc\direct_debit_sandbox\subscriptions\SubscriptionController.class
+com\itc\direct_debit_sandbox\subscriptions\dto\SubscriptionRequestDto.class
