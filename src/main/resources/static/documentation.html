@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ITC Direct Debit — API Documentation</title>
+  <link rel="stylesheet" href="docs.css" />
+  <style>
+    .doc-shell {
+      position: fixed;
+      top: var(--top-h);
+      left: 0; right: 0; bottom: 0;
+    }
+    .doc-frame {
+      width: 100%; height: 100%;
+      border: none; display: block;
+    }
+    /* shown only when iframe is blocked */
+    .doc-blocked {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 20px;
+      color: var(--text-2);
+      text-align: center;
+      padding: 40px;
+    }
+    .doc-blocked svg { color: var(--text-3); }
+    .doc-blocked h2 { font-size: 20px; font-weight: 700; color: var(--text); }
+    .doc-blocked p  { font-size: 14px; max-width: 420px; line-height: 1.7; }
+    .btn-open-docs {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: linear-gradient(135deg, var(--accent), #6366f1);
+      color: #fff; padding: 12px 28px; border-radius: var(--radius);
+      font-size: 14px; font-weight: 700; text-decoration: none;
+      box-shadow: 0 4px 12px rgba(59,130,246,.35);
+      transition: all .15s;
+    }
+    .btn-open-docs:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(59,130,246,.45);
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <button class="btn-sidebar-toggle" style="visibility:hidden" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+        <rect x="1" y="3"    width="14" height="1.5" rx="1"/>
+        <rect x="1" y="7.25" width="14" height="1.5" rx="1"/>
+        <rect x="1" y="11.5" width="14" height="1.5" rx="1"/>
+      </svg>
+    </button>
+    <div class="topbar-brand">
+      <img fetchpriority="high"
+           src="https://www.itconsortiumgh.com/wp-content/uploads/2020/07/ITC-Logo-01-light.png"
+           alt="ITC" loading="lazy" style="width:100px;height:auto;">
+      <span class="topbar-badge">Sandbox</span>
+    </div>
+    <nav class="topbar-nav">
+      <a class="topbar-link topbar-link-active" href="/documentation">Documentation</a>
+      <a class="topbar-link" href="/">Sandbox</a>
+      <a class="topbar-link" href="/docs" target="_blank">Swagger UI ↗</a>
+    </nav>
+    <a class="btn-open-ext" id="btn-open-ext"
+       href="https://apis.itcsrvc.com/direct-debit/api-documentation"
+       target="_blank"
+       title="Open in new tab"
+       style="display:flex;align-items:center;gap:6px;
+              background:rgba(255,255,255,.1);color:rgba(255,255,255,.8);
+              border:1px solid rgba(255,255,255,.2);border-radius:var(--radius);
+              padding:6px 14px;font-size:13px;font-weight:500;
+              text-decoration:none;flex-shrink:0;transition:all .15s;">
+      Open in new tab ↗
+    </a>
+  </header>
+
+  <div class="doc-shell">
+    <iframe
+      id="doc-frame"
+      class="doc-frame"
+      src="https://apis.itcsrvc.com/direct-debit/api-documentation"
+      title="ITC Direct Debit API Documentation">
+    </iframe>
+
+    <div class="doc-blocked" id="doc-blocked">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="1.5">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <line x1="9" y1="9" x2="15" y2="15"/>
+        <line x1="15" y1="9" x2="9" y2="15"/>
+      </svg>
+      <h2>Documentation can't be embedded</h2>
+      <p>
+        The documentation site doesn't allow being displayed in a frame.<br>
+        Open it directly in your browser — all your work here is still accessible via the <strong>Sandbox</strong> tab.
+      </p>
+      <a class="btn-open-docs"
+         href="https://apis.itcsrvc.com/direct-debit/api-documentation"
+         target="_blank">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2">
+          <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+          <polyline points="15 3 21 3 21 9"/>
+          <line x1="10" y1="14" x2="21" y2="3"/>
+        </svg>
+        Open Documentation
+      </a>
+    </div>
+  </div>
+
+  <script>
+    const frame = document.getElementById('doc-frame');
+    const blocked = document.getElementById('doc-blocked');
+
+    frame.addEventListener('load', () => {
+      // Cross-origin frames that load successfully are opaque — we can't read
+      // contentDocument. But if the browser refused to load due to X-Frame-Options,
+      // the frame's contentWindow.location will throw a SecurityError.
+      try {
+        const loc = frame.contentWindow.location.href;
+        // If we can read href and it's 'about:blank', the page was blocked.
+        if (loc === 'about:blank') showBlocked();
+      } catch {
+        // SecurityError = cross-origin but loaded fine — iframe is working.
+      }
+    });
+
+    // Secondary check: some browsers leave src empty when blocked
+    setTimeout(() => {
+      try {
+        if (frame.contentDocument && !frame.contentDocument.body?.children.length) {
+          showBlocked();
+        }
+      } catch { /* cross-origin, means it loaded */ }
+    }, 3000);
+
+    function showBlocked() {
+      frame.style.display = 'none';
+      blocked.style.display = 'flex';
+    }
+  </script>
+
+</body>
+</html>

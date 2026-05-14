@@ -82,6 +82,14 @@ If you see a piece of syntax in a file and wonder "what does that even mean?" �
 72. [Text blocks — multiline strings in Java](#72-text-blocks--multiline-strings-in-java)
 73. [Channel aliasing — remapping deprecated values internally](#73-channel-aliasing--remapping-deprecated-values-internally)
 74. [Custom documentation portal — building your own API docs UI](#74-custom-documentation-portal--building-your-own-api-docs-ui)
+75. [@ApiResponse and @ApiResponses — documenting all possible responses](#75-apiresponse-and-apiresponses--documenting-all-possible-responses)
+76. [@Schema(example) — pre-filling Try It with real values](#76-schemaexample--pre-filling-try-it-with-real-values)
+77. [Consistent 401 protection — required=false + manual auth guard](#77-consistent-401-protection--requiredfalse--manual-auth-guard)
+78. [JSON syntax highlighting in vanilla JS](#78-json-syntax-highlighting-in-vanilla-js)
+79. [Curl syntax highlighting — colorizing shell commands in the browser](#79-curl-syntax-highlighting--colorizing-shell-commands-in-the-browser)
+80. [Retractable sidebar — toggling a CSS Grid column to zero](#80-retractable-sidebar--toggling-a-css-grid-column-to-zero)
+81. [Embedding external pages with iframe + fallback](#81-embedding-external-pages-with-iframe--fallback)
+82. [WebMvcConfigurer.addViewControllers — serving static HTML at a custom route](#82-webmvcconfigureradviewcontrollers--serving-static-html-at-a-custom-route)
 
 ---
 
@@ -2591,6 +2599,359 @@ for (const name of Object.keys(schemes)) {
 - Swagger UI (`/docs`) is battle-tested, handles complex edge cases (file uploads, OAuth flows, discriminators), and requires no maintenance.
 - The custom portal (`/`) can be styled to match the product brand, hides distracting Swagger chrome, and gives you full control over layout and UX.
 - The OpenAPI spec (`/v3/api-docs`) is the shared source of truth — both portals read from the same JSON, so they never diverge.
+
+---
+
+---
+
+## 75. @ApiResponse and @ApiResponses — documenting all possible responses
+
+By default, springdoc only records that an endpoint returns HTTP 200. Every endpoint in this project also returns a business-level `responseCode` field inside the 200 body, and some return 400 (validation failure) or 401 (missing headers). The `@ApiResponse` annotation documents all of these so they appear in both Swagger UI and the custom portal's Responses table.
+
+```java
+@ApiResponses({
+    @ApiResponse(responseCode = "200", description =
+        "Always returned. Check `responseCode` in the body:\n\n" +
+        "| Code | Meaning |\n" +
+        "|------|---------|\n" +
+        "| `03` | Request accepted |\n" +
+        "| `100` | Business error — see responseMessage |\n"),
+    @ApiResponse(responseCode = "400", description = "Jakarta validation failure"),
+    @ApiResponse(responseCode = "401", description = "Missing required headers")
+})
+```
+
+**Key points:**
+
+- `@ApiResponses` is a container annotation that holds multiple `@ApiResponse` entries — you need it whenever you declare more than one response for an endpoint.
+- The `description` field supports Markdown, including tables. Swagger UI renders them; the custom portal calls `marked.parse(r.description)` to do the same.
+- The `responseCode` attribute is a **string**, not an integer — OpenAPI status codes are always strings (`"200"`, `"401"`).
+- You can have multiple `@ApiResponse` entries for the same HTTP code (e.g. two `"200"` entries with different `content` schemas), but in practice a single 200 entry with a Markdown table of all business codes is cleaner.
+- Springdoc merges the `@ApiResponses` you declare with any it infers from the method return type — if you declare at least one `"200"`, it won't auto-generate a second one.
+
+**Why this matters for the custom portal** — the `buildResponsesSection()` function reads `op.responses` from the OpenAPI JSON. Without `@ApiResponse`, that object only has `"200": { description: "" }`. With it, each HTTP code has a rich description and the response table rows are coloured by family (green for 2xx, orange for 4xx, red for 5xx).
+
+---
+
+## 76. @Schema(example) — pre-filling Try It with real values
+
+The `buildExampleFromSchema()` function in `docs.js` walks the OpenAPI schema for a DTO and builds a pre-filled JSON object. By default it uses type-based fallbacks: `""` for strings, `0` for integers, `false` for booleans, and the first enum value for enums. This gives a structurally correct body but every string is blank — not helpful.
+
+Adding `@Schema(example = "...")` to a DTO field embeds the example value directly into the OpenAPI spec, and `buildExampleFromSchema` uses it first:
+
+```java
+@Schema(example = "0241234001",
+        description = "Last 3 digits control the simulated outcome — 001=success, 002=fail+retry")
+private String debitAccount;
+```
+
+In the generated OpenAPI JSON this becomes:
+
+```json
+"debitAccount": {
+  "type": "string",
+  "example": "0241234001",
+  "description": "Last 3 digits control the simulated outcome..."
+}
+```
+
+And in `docs.js`:
+
+```js
+function buildExampleFromSchema(schema, depth = 0) {
+  for (const [name, rawProp] of Object.entries(props)) {
+    const p = deref(rawProp);
+    if (p.example !== undefined) { out[name] = p.example; continue; }  // ← used here
+    // ... type-based fallbacks below
+  }
+}
+```
+
+**Best practices for example values:**
+
+| Field type | What to put in `example` |
+|------------|--------------------------|
+| ID fields (`merchantId`, `productId`) | Real-looking UUID from your test data |
+| Account numbers | An account that exercises the success path (`...001`) |
+| Dates | A future date in `yyyy-MM-dd` format |
+| Enums | The most common value (e.g. `"MTN"`, `"MONTHLY"`) |
+| Runtime IDs (subscriptionId, mandateId) | `"replace-with-..."` — makes it obvious the user must fill it in |
+| Optional fallbacks (callbackUrl) | The webhook.site URL from your own testing |
+
+For enum fields, springdoc serialises `@Schema(example = "MTN")` as the string `"MTN"` in the JSON, and `buildExampleFromSchema` assigns it directly — no type coercion needed on the client side.
+
+---
+
+## 77. Consistent 401 protection — required=false + manual auth guard
+
+Spring's default behaviour for `@RequestHeader("x-transflowId")` (no `required` attribute) is **required = true**. If the header is absent, Spring throws `MissingRequestHeaderException` which becomes a **400 Bad Request** before your code even runs. That's the wrong HTTP code — a missing auth header is an authentication failure (401), not a malformed request (400).
+
+The pattern used in this project (from `LifecycleController` and `PreAuthController`) is:
+
+```java
+// 1. Make headers optional so Spring doesn't auto-reject them
+@RequestHeader(value = "x-transflowId", required = false) String transflowId,
+@RequestHeader(value = "x-key",         required = false) String apiKey,
+@RequestHeader(value = "x-country",     required = false) String country,
+
+// 2. Check manually at the top of the method
+if (isUnauthorized(transflowId, apiKey, country)) return buildUnauthorizedResponse();
+```
+
+```java
+private boolean isUnauthorized(String transflowId, String key, String country) {
+    return transflowId == null || transflowId.isBlank() ||
+           key        == null || key.isBlank()         ||
+           country    == null || country.isBlank();
+}
+
+private ResponseEntity<?> buildUnauthorizedResponse() {
+    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+            .body(ApiResponseDto.builder()
+                    .responseCode("401")
+                    .responseMessage("Unauthorized. Required headers missing: x-transflowId, x-key, x-country")
+                    .build());
+}
+```
+
+**Before this fix** — `SubscriptionController`, `TransactionController`, and `ProvisionController` all used required headers. A caller who forgot a header got a generic Spring 400 with no meaningful message. After the fix, they get a structured 401 with a clear list of which headers are needed.
+
+**`isBlank()` vs `isEmpty()`** — `isBlank()` returns `true` for `null`, `""`, and any string that is all whitespace. `isEmpty()` only checks length. Use `isBlank()` for header validation — a header of `"   "` is just as useless as an empty one.
+
+**The return type must change** — when you add auth checking you need to return either a service result or a 401 error. A method that previously returned `Map<String, Object>` must be changed to `ResponseEntity<?>` (`?` = any type) so it can return both shapes.
+
+---
+
+## 78. JSON syntax highlighting in vanilla JS
+
+When the Try It panel receives a response, it displays the JSON body in a dark `<pre>` block. Without highlighting, all text is the same colour. A simple regex-based pass over the already-escaped JSON string adds `<span>` tags with colour classes:
+
+```js
+function highlightJson(raw) {
+  // Escape HTML but leave " unescaped so the regex can match quoted strings
+  const safe = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return safe
+    .replace(/"([^"\n]*)"(\s*):/g,   '<span class="json-key">"$1"</span>$2:')
+    .replace(/:\s*"([^"\n]*)"/g,     (m, v) => `: <span class="json-str">"${v}"</span>`)
+    .replace(/:\s*(-?\d+(?:\.\d+)?)/, (m, v) => `: <span class="json-num">${v}</span>`)
+    .replace(/:\s*(true|false)/g,    (m, v) => `: <span class="json-bool">${v}</span>`)
+    .replace(/:\s*(null)/g,          `: <span class="json-null">null</span>`);
+}
+```
+
+**Why escape first, then colorize?**
+
+If you ran the regex on the raw string and then called `escHtml()`, the `<span>` tags you just injected would themselves be escaped into `&lt;span&gt;` — which the browser would display as text. The correct order is: escape unsafe chars from the data first, then inject safe HTML markup.
+
+**Why not escape `"`?**
+
+`escHtml()` in the existing codebase escapes `"` to `&quot;`. If applied first, all string delimiters become `&quot;`, and the regex `"([^"]+)"` would no longer match anything. So the JSON highlighter uses a lighter escape that skips `"`.
+
+**The CSS** lives on the dark background of `.response-pre`:
+
+```css
+.json-key  { color: #c4b5fd; font-weight: 600; }  /* purple — keys */
+.json-str  { color: #6ee7b7; }                     /* teal — string values */
+.json-num  { color: #fcd34d; }                     /* amber — numbers */
+.json-bool { color: #93c5fd; font-weight: 600; }   /* blue — true/false */
+.json-null { color: #94a3b8; font-style: italic; } /* grey — null */
+```
+
+**Limitation** — this regex approach doesn't handle nested quotes inside strings (e.g. `"say \"hello\""`) or multiline values. For a sandbox API whose payloads are UUIDs, codes, and dates, it's more than enough. A production use case would use a proper tokeniser or a library like `highlight.js`.
+
+---
+
+## 79. Curl syntax highlighting — colorizing shell commands in the browser
+
+The Try It panel also shows the equivalent `curl` command so users can copy it to their terminal. A second highlighting function tokenises the curl command structure:
+
+```js
+function highlightCurl(raw) {
+  let s = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  s = s.replace(/^curl\b/,         '<span class="curl-cmd">curl</span>');
+  s = s.replace(/-X ([A-Z]+)/g,    (_, m) =>
+    `<span class="curl-flag">-X</span> <span class="curl-method method-${m.toLowerCase()}">${m}</span>`
+  );
+  s = s.replace(/'(https?:\/\/[^']+)'/g, `'<span class="curl-url">$1</span>'`);
+  s = s.replace(/-H '([^:]+):\s*([^']*)'/g, (_, name, val) =>
+    `<span class="curl-flag">-H</span> '<span class="curl-hname">${name}</span>: <span class="curl-hval">${val}</span>'`
+  );
+  s = s.replace(/-d '([^']*)'/gs,  (_, body) =>
+    `<span class="curl-flag">-d</span> '<span class="curl-body">${body}</span>'`
+  );
+  return s;
+}
+```
+
+**Colour roles:**
+
+| Class | Colour | What it marks |
+|-------|--------|---------------|
+| `.curl-cmd` | Cyan | The `curl` keyword |
+| `.curl-flag` | Purple | Flags: `-X`, `-H`, `-d` |
+| `.curl-method` | Method badge colour | The HTTP verb (`POST`, `GET`, …) |
+| `.curl-url` | Amber | The full request URL |
+| `.curl-hname` | Sky blue | Header name (`x-transflowId`) |
+| `.curl-hval` | Teal green | Header value (the actual token) |
+| `.curl-body` | Light grey | The JSON request body |
+
+**Reusing method badge CSS** — because the method token gets `class="curl-method method-post"`, it picks up the same colour as the sidebar and operation detail badges (`method-post`, `method-get`, etc.) — no new CSS needed for the colours.
+
+**The `/gs` flag on the `-d` regex** — `g` = replace all matches, `s` = dotAll mode (`.` matches newlines). Without `s`, a multiline JSON body between single quotes would not match. This is the `RegExp` dotAll flag, added in ES2018.
+
+---
+
+## 80. Retractable sidebar — toggling a CSS Grid column to zero
+
+The sidebar toggle works by adding a class to the layout container that overrides the grid column definition:
+
+```css
+/* Default: sidebar visible */
+.layout {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;   /* 280px content */
+  transition: grid-template-columns .25s ease;    /* animate the change */
+}
+/* Try panel open */
+.layout.panel-open {
+  grid-template-columns: var(--sidebar-w) 1fr var(--try-w);
+}
+/* Sidebar hidden */
+.layout.sidebar-hidden {
+  grid-template-columns: 0px 1fr;
+}
+/* Both at once */
+.layout.sidebar-hidden.panel-open {
+  grid-template-columns: 0px 1fr var(--try-w);
+}
+/* Stop content from bleeding out during the animation */
+.layout.sidebar-hidden .sidebar {
+  overflow: hidden;
+  border-right: none;
+}
+```
+
+The JavaScript is minimal — one class toggle:
+
+```js
+function wireSidebarToggle() {
+  const btn    = document.getElementById('btn-sidebar-toggle');
+  const layout = document.getElementById('layout');
+  btn.addEventListener('click', () => {
+    const hidden = layout.classList.toggle('sidebar-hidden');
+    btn.classList.toggle('active', hidden);
+    btn.title = hidden ? 'Show sidebar' : 'Hide sidebar';
+  });
+}
+```
+
+**Why `grid-template-columns: 0px` works** — CSS Grid allows a column to be `0px` wide. The column still technically exists (children are still in the grid flow), but it has no width. Combined with `overflow: hidden` on the sidebar element itself, nothing is visible. The `transition` on `grid-template-columns` animates the collapse smoothly.
+
+**Why not `display: none`?** — `display: none` cannot be animated. The element vanishes instantly. A `0px` width column with overflow hidden achieves the same visual result but with a smooth CSS transition.
+
+**Preserving the panel-open state** — because `sidebar-hidden` is a separate class from `panel-open`, both can be active simultaneously. The compound selector `.sidebar-hidden.panel-open` handles the case where the user collapses the sidebar while the try panel is open — the content column still has its third track.
+
+---
+
+## 81. Embedding external pages with iframe + fallback
+
+The documentation page (`/documentation`) tries to embed an external Redocly URL inside an `<iframe>`. This fails silently if the external site sends `X-Frame-Options: SAMEORIGIN` or `X-Frame-Options: DENY` — the browser blocks the load and shows a blank frame with no error event.
+
+**The embed pattern:**
+
+```html
+<iframe id="doc-frame" src="https://apis.itcsrvc.com/direct-debit/api-documentation"></iframe>
+<div id="doc-blocked" style="display:none">
+  <!-- fallback message + "Open in new tab" button -->
+</div>
+```
+
+```js
+frame.addEventListener('load', () => {
+  try {
+    const loc = frame.contentWindow.location.href;
+    if (loc === 'about:blank') showBlocked();  // page was refused
+  } catch {
+    // SecurityError = cross-origin and loaded fine — working correctly
+  }
+});
+```
+
+**Why the try/catch works:**
+
+- If the iframe loaded successfully from a different origin, `frame.contentWindow.location` throws a `SecurityError` (cross-origin access denied). That's actually the *success* case — the page loaded, we just can't read it.
+- If the browser *blocked* the iframe, `contentWindow.location.href` returns `"about:blank"` — readable because `about:blank` is same-origin with everything.
+- So: `SecurityError` → working. `"about:blank"` → blocked.
+
+**`X-Frame-Options` values:**
+
+| Value | Meaning |
+|-------|---------|
+| `DENY` | Never embedded in any frame |
+| `SAMEORIGIN` | Only embeddable by a page on the same origin |
+| `ALLOW-FROM uri` | Only embeddable by the specified origin (deprecated, use CSP instead) |
+| *(absent)* | Can be embedded anywhere |
+
+**When the same company controls both sides** — if the docs site and the sandbox are eventually deployed to the same origin (e.g. both on `itcsrvc.com`), `SAMEORIGIN` would allow embedding. Until then, the fallback "Open Documentation" button ensures the user is never stuck.
+
+**Always show an "Open in new tab" button** — regardless of whether the iframe works, a persistent link to open the docs externally is good UX. Users may prefer a full browser tab anyway.
+
+---
+
+## 82. WebMvcConfigurer.addViewControllers — serving static HTML at a custom route
+
+Spring Boot automatically serves `src/main/resources/static/index.html` at `/`. It does *not* automatically map other paths to other HTML files. Navigating to `/documentation` would normally return a 404.
+
+`WebMvcConfigurer.addViewControllers()` registers a view controller — a lightweight mapping with no Java method body, just a URL → view name forward:
+
+```java
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+    @Override
+    public void addViewControllers(ViewControllerRegistry registry) {
+        registry.addViewController("/documentation")
+                .setViewName("forward:/documentation.html");
+    }
+}
+```
+
+**`forward:` vs `redirect:`:**
+
+| Prefix | HTTP behaviour | URL in browser |
+|--------|----------------|----------------|
+| `forward:/documentation.html` | Server-side forward — same request, different handler | Stays as `/documentation` |
+| `redirect:/documentation.html` | Sends 302 to client | Changes to `/documentation.html` |
+
+Use `forward:` here. You want `/documentation` to stay in the address bar (clean URL) while Spring internally serves the static file. A redirect would change the URL to `/documentation.html`, which exposes the implementation detail.
+
+**Why not just use a `@GetMapping`?** You could write a controller method that returns a `ModelAndView` or a `String` view name, but `addViewControllers()` is lighter — it's a pure URL-to-resource mapping with no Java logic whatsoever. Spring's own docs recommend it for exactly this: "static welcome pages, or pages that should be viewable without executing any Java code."
+
+**The full routing picture for this project:**
+
+| URL | Served by |
+|-----|-----------|
+| `/` | `static/index.html` (Spring Boot auto) |
+| `/documentation` | `static/documentation.html` (WebConfig forward) |
+| `/docs` | Swagger UI (springdoc) |
+| `/v3/api-docs` | OpenAPI JSON (springdoc) |
+| `/subscription/**` | SubscriptionController / LifecycleController |
+| `/provision` | ProvisionController |
+| `/transaction/**` | TransactionController |
+| `/pre-authorization/**`, `/mandate/**`, `/direct-debit/**` | PreAuthController |
+| `/debug/store` | DebugController |
+
+---
+
+**Custom documentation portal (additions)**
+- `@ApiResponse` / `@ApiResponses` — document every HTTP code and business `responseCode` an endpoint can return; the description supports Markdown tables; both Swagger UI and the custom portal render them
+- `@Schema(example = "...")` on DTO fields embeds real example values into the OpenAPI JSON; `buildExampleFromSchema()` picks them up as the first priority, before type-based fallbacks — Try It panels open pre-filled
+- JSON syntax highlighting: escape HTML first, then inject `<span>` tags via regex; keys purple, string values teal, numbers amber, booleans blue, null grey — all on a dark background
+- Curl syntax highlighting: the same dark-background approach applied to the `curl` command output — flags purple, method badge reuses existing CSS classes, URL amber, header names sky blue, values teal
+- Retractable sidebar: toggle `grid-template-columns: 0px 1fr` with a class — CSS `transition` animates it, `overflow: hidden` prevents bleed during the animation; `display: none` cannot be animated
+- Consistent 401 protection: `@RequestHeader(required = false)` + manual `isUnauthorized()` check gives you a structured 401 instead of Spring's generic 400 MissingRequestHeaderException
+- iframe embedding: a cross-origin iframe that loads successfully throws `SecurityError` on `contentWindow.location` — that's the success case; `about:blank` means blocked by `X-Frame-Options`
+- `WebMvcConfigurer.addViewControllers()` maps a clean URL (`/documentation`) to a static HTML file via a server-side `forward:` — no controller method body needed, URL stays clean in the browser
 
 ---
 
