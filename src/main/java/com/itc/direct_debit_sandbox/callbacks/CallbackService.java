@@ -5,7 +5,6 @@ import com.itc.direct_debit_sandbox.callbacks.dto.TransactionCallbackPayloadDto;
 import com.itc.direct_debit_sandbox.config.SandboxConfig;
 import com.itc.direct_debit_sandbox.preauthorization.dto.TriggerMandateDebitRequest;
 import com.itc.direct_debit_sandbox.scenarios.ScenarioEngine;
-import com.itc.direct_debit_sandbox.store.ConfigurationItem;
 import com.itc.direct_debit_sandbox.store.PreAuthRecord;
 import com.itc.direct_debit_sandbox.store.ProvisionRecord;
 import com.itc.direct_debit_sandbox.store.Store;
@@ -137,11 +136,11 @@ public class CallbackService {
     public void fireOneTimeTransactionCallback(TransactionRecord record, String callbackUrl) {
         String responseCode = scenarioEngine.resolveResponseCode(record.getDebitAccount());
         String responseMessage = scenarioEngine.resolveResponseMessage(responseCode);
-        
+
         record.setResponseCode(responseCode);
         record.setResponseMessage(responseMessage);
         record.setStatus(responseCode.equals("01") ? "SUCCESS" : "FAILED");
-        
+
         // Update record in store (assuming saveTransaction overwrites)
         store.saveTransaction(record.getReference(), record);
 

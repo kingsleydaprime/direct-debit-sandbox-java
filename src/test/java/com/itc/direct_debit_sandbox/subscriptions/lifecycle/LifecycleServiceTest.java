@@ -1,6 +1,6 @@
 package com.itc.direct_debit_sandbox.subscriptions.lifecycle;
 
-import com.itc.direct_debit_sandbox.scenarios.ScenarioEngine;
+
 import com.itc.direct_debit_sandbox.store.InMemoryStore;
 import com.itc.direct_debit_sandbox.store.SubscriptionRecord;
 import com.itc.direct_debit_sandbox.subscriptions.dto.ApiResponseDto;
@@ -16,15 +16,14 @@ class LifecycleServiceTest {
 
     private LifecycleService lifecycleService;
     private InMemoryStore store;
-    private ScenarioEngine scenarioEngine;
     private CallbackService callbackService;
 
     @BeforeEach
     void setUp() {
         store = new InMemoryStore();
-        scenarioEngine = mock(ScenarioEngine.class);
+
         callbackService = mock(CallbackService.class);
-        lifecycleService = new LifecycleService(store, scenarioEngine, callbackService);
+        lifecycleService = new LifecycleService(store,  callbackService);
     }
 
     @Test
@@ -32,7 +31,7 @@ class LifecycleServiceTest {
         // 1. Arrange: Save an ACTIVE subscription to the store
         String subId = "SUB123";
         SubscriptionRecord record = SubscriptionRecord.builder()
-                .subscriptionId(subId)
+                .id(subId)
                 .status("ACTIVE")
                 .referenceNo("REF123")
                 .build();
@@ -42,7 +41,7 @@ class LifecycleServiceTest {
         PauseRequest request = new PauseRequest();
         request.setSubscriptionId(subId);
         request.setProductId("PROD1");
-        
+
         ApiResponseDto<?> response = lifecycleService.pause(request);
 
         // 3. Assert: Verify response code is success (01) and store status is now PAUSED

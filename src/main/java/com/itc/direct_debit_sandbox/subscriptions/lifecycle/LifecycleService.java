@@ -10,7 +10,7 @@ import com.itc.direct_debit_sandbox.store.Store;
 import com.itc.direct_debit_sandbox.store.SubscriptionRecord;
 import com.itc.direct_debit_sandbox.store.TransactionRecord;
 import com.itc.direct_debit_sandbox.subscriptions.dto.ApiResponseDto;
-import com.itc.direct_debit_sandbox.scenarios.ScenarioEngine;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -28,7 +28,6 @@ import java.util.UUID;
 public class LifecycleService {
 
     private final Store store; // InMemoryStore implementation (owned by Person 1)
-    private final ScenarioEngine scenarioEngine; // resolves response codes for debit scenarios
     private final CallbackService callbackService; // fires async transaction callbacks
 
     /**
