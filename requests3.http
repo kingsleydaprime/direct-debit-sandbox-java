@@ -14,11 +14,11 @@
 
 ### Shared variables — change these once to affect every request below
 @baseUrl      = http://localhost:8080
-@transflowId  = 82d726a2-4b42-11ee-be56-0242ac120002
+@transflowId  = 82d726a2-4b42-11ee-be56-0242ac120007
 @apiKey       = b76d1751-7b10-423e-8ed9-3c6b68ef7a07
 @country      = GH
-@merchantId   = c64bf5f9-f147-4232-8d00-f28105823d6a
-@productId    = ff469300-0a9f-43cc-92ca-25e0b75dfe18
+@merchantId   = c64bf5f9-f147-4232-8d00-f28105823d7a
+@productId    = ff469300-0a9f-43cc-92ca-25e0b75dfe17
 @callbackUrl  = https://webhook.site/25d15f54-20af-47a5-af23-5931dff0378e
 
 @mandateId = e3dddcd7-280f-402b-af85-94605a7d9d3a

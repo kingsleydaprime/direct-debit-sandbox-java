@@ -34,3 +34,5 @@ build/
 ### Gradle ###
 .gradle/
 .gradle
+bin/
+/bin

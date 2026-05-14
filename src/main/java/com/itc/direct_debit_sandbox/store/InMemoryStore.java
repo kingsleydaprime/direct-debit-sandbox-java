@@ -86,6 +86,12 @@ public class InMemoryStore implements Store {
         return transactions.containsKey(reference);
     }
 
+    public List<TransactionRecord> getAllFailedTransactions() {
+        return transactions.values().stream()
+                .filter(t -> "FAILED".equalsIgnoreCase(t.getStatus()) && t.getRetriesUsed() < t.getMaxRetries())
+                .collect(java.util.stream.Collectors.toList());
+    }
+
     // Provision methods
     public void saveProvision(String merchantId, String productId, ProvisionRecord record) {
         provisions.put(merchantId + ":" + productId, record);

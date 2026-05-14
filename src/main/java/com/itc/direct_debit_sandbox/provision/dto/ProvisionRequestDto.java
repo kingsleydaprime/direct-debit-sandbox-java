@@ -1,6 +1,7 @@
 package com.itc.direct_debit_sandbox.provision.dto;
 
-import com.itc.direct_debit_sandbox.provision.MerchantType;
+import com.itc.direct_debit_sandbox.provision.ProductType;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -8,20 +9,26 @@ import lombok.Data;
 public class ProvisionRequestDto {
 
     @NotBlank
+    @Schema(example = "c64bf5f9-f147-4232-8d00-f28105823d6a")
     private String merchantId;
 
     @NotBlank
+    @Schema(example = "ff469300-0a9f-43cc-92ca-25e0b75dfe18")
     private String productId;
 
     @NotBlank
+    @Schema(example = "https://webhook.site/your-id")
     private String callbackUrl;
 
-    // Determines which endpoints the merchant is allowed to use.
-    // Jackson will reject any value not in the MerchantType enum.
-    private MerchantType merchantType;
+    @Schema(example = "HYBRID", description = "HYBRID | SUBSCRIPTIONS_ONLY | PREAUTHORIZED_ONLY")
+    private ProductType productType;
 
-    // Optional catalogue configuration — if omitted the defaults already stored are kept
+    @Schema(example = "3", description = "Max retry attempts on failure. Omit to keep existing value.")
     private Integer retryAttempts;
+
+    @Schema(example = "1", description = "Number of billing cycles to skip after a failed + exhausted attempt.")
     private Integer skipFactor;
+
+    @Schema(example = "3", description = "Days before debit day to send a notification.")
     private String daysToDebitDayNotice;
 }

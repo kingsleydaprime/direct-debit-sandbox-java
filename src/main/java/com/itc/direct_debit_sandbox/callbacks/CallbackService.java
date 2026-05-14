@@ -5,6 +5,7 @@ import com.itc.direct_debit_sandbox.callbacks.dto.TransactionCallbackPayloadDto;
 import com.itc.direct_debit_sandbox.config.SandboxConfig;
 import com.itc.direct_debit_sandbox.preauthorization.dto.TriggerMandateDebitRequest;
 import com.itc.direct_debit_sandbox.scenarios.ScenarioEngine;
+import com.itc.direct_debit_sandbox.store.ConfigurationItem;
 import com.itc.direct_debit_sandbox.store.PreAuthRecord;
 import com.itc.direct_debit_sandbox.store.ProvisionRecord;
 import com.itc.direct_debit_sandbox.store.Store;
@@ -67,10 +68,15 @@ public class CallbackService {
 
     @Async("callbackExecutor")
     public void fireTransactionCallback(SubscriptionRecord record) {
-        String responseCode = scenarioEngine.resolveResponseCode(record.getDebitAccount());
+        fireTransactionCallback(record, 0);
+    }
+
+    public void fireTransactionCallback(SubscriptionRecord record, int attemptNumber) {
+        String responseCode    = scenarioEngine.resolveResponseCode(record.getDebitAccount(), attemptNumber);
         String responseMessage = scenarioEngine.resolveResponseMessage(responseCode);
-        String transactionId = UUID.randomUUID().toString();
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String transactionId   = UUID.randomUUID().toString();
+        String timestamp       = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        int maxRetries         = resolveMaxRetries(record);
 
         TransactionCallbackPayloadDto payload = TransactionCallbackPayloadDto.builder()
                 .responseCode(responseCode)
@@ -89,7 +95,6 @@ public class CallbackService {
                 .charge("0.00")
                 .build();
 
-        // Save transaction to store
         store.saveTransaction(record.getReferenceNo(), TransactionRecord.builder()
                 .id(transactionId)
                 .networkTransactionId(payload.getNetworkTransactionId())
@@ -106,12 +111,26 @@ public class CallbackService {
                 .timestamp(timestamp)
                 .charge("0.00")
                 .status(responseCode.equals("01") ? "SUCCESS" : "FAILED")
+                .retriesUsed(attemptNumber)
+                .maxRetries(record.isTriggerDebitStatus() ? maxRetries : 0)
                 .build());
 
         String url = resolveCallbackUrl(record.getMerchantId(), record.getProductId(), record.getCallbackUrl());
         sendCallback(url, payload);
-        log.info("Transaction callback fired for mandateId: {}, responseCode: {}",
-                record.getId(), responseCode);
+        log.info("Transaction callback fired for mandateId: {}, attempt: {}, responseCode: {}",
+                record.getId(), attemptNumber, responseCode);
+    }
+
+    private int resolveMaxRetries(SubscriptionRecord record) {
+        if (record.getConfiguration() == null) return 1;
+        return record.getConfiguration().stream()
+                .filter(c -> "retryAttempts".equals(c.getName()))
+                .mapToInt(c -> {
+                    try { return Integer.parseInt(c.getValue()); }
+                    catch (NumberFormatException e) { return 1; }
+                })
+                .findFirst()
+                .orElse(1);
     }
 
     @Async("callbackExecutor")

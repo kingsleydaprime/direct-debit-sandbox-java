@@ -3,20 +3,36 @@
 ### Works with: IntelliJ HTTP Client  |  VS Code REST Client extension
 ###
 ### SCENARIO CHEAT SHEET (last 3 digits of debitAccount drive the outcome):
-###   001  →  Success
+###
+###   TRANSIENT (retry-aware):
+###   001  →  Always success
+###   002  →  Fail attempt 0, succeed on retry 1
+###   003  →  Fail attempts 0–1, succeed on retry 2
+###
+###   PERMANENT FAILURES:
+###   100  →  General failure
 ###   101  →  Insufficient funds
 ###   104  →  Duplicate transaction
-###   004  →  Pre-approval pending
-###   131  →  Timeout
+###   107  →  Invalid credentials
+###   110  →  Duplicate transaction (internal)
 ###   111  →  Inconclusive
-###   100  →  General failure
+###   121  →  Not allowed
+###   131  →  Timeout
+###   515  →  Account holder not found
+###   527  →  Resource not found
+###   529  →  Insufficient balance / limit exceeded
+###   682  →  Internal error
+###   779  →  Resource temporarily locked
+###
+###   PRE-APPROVAL:
+###   004  →  Pre-approval pending (response code 04)
 ### ─────────────────────────────────────────────────────────────────────────
 
 ### Shared variables — change these once to affect every request below
 @baseUrl      = http://localhost:8080
-@transflowId  = 82d726a2-4b42-11ee-be56-0242ac120002
-@apiKey       = b76d1751-7b10-423e-8ed9-3c6b68ef7a07
-@country      = GH
+@transflowId  = 82d726a2-4b42-11ee-be56-0242ac120009
+@apiKey       = b76d1751-7b10-423e-8ed9-3c6b68ef7a02
+@country      = RW
 @merchantId   = c64bf5f9-f147-4232-8d00-f28105823d6a
 @productId    = ff469300-0a9f-43cc-92ca-25e0b75dfe18
 @callbackUrl  = https://webhook.site/25d15f54-20af-47a5-af23-5931dff0378e
@@ -823,7 +839,7 @@ x-country: {{country}}
   "debitTime": "14:30",
   "channel": "VODAFONE",
   "currency": "GHS",
-  "referenceNo": "REF_BAD_CHANNEL"
+  "referenceNo": "REF_BAD_CHANNEL1"
 }
 
 ###
@@ -866,7 +882,7 @@ GET {{baseUrl}}/debug/store
 ### ═════════════════════════════════════════════════════════════════════════
 
 ### 20a. Provision as PREAUTHORIZED_ONLY — required to use preauth/mandate endpoints
-POST {{baseUrl}}/provision/register
+POST {{baseUrl}}/provision
 Content-Type: application/json
 x-transflowId: {{transflowId}}
 x-key: {{apiKey}}
@@ -874,14 +890,14 @@ x-key: {{apiKey}}
 {
   "merchantId": "{{merchantId}}",
   "productId": "{{productId}}",
-  "callbackUrl": "https://merchant.example.com/callback",
-  "merchantType": "PREAUTHORIZED_ONLY"
+  "callbackUrl": "{{callbackUrl}}",
+  "productType": "PREAUTHORIZED_ONLY"
 }
 
 ###
 
 ### 20b. Provision as SUBSCRIPTIONS_ONLY
-POST {{baseUrl}}/provision/register
+POST {{baseUrl}}/provision
 Content-Type: application/json
 x-transflowId: {{transflowId}}
 x-key: {{apiKey}}
@@ -889,8 +905,8 @@ x-key: {{apiKey}}
 {
   "merchantId": "{{merchantId}}",
   "productId": "{{productId}}",
-  "callbackUrl": "https://merchant.example.com/callback",
-  "merchantType": "SUBSCRIPTIONS_ONLY"
+  "callbackUrl": "{{callbackUrl}}",
+  "productType": "SUBSCRIPTIONS_ONLY"
 }
 
 ###
@@ -1071,3 +1087,365 @@ x-country: {{country}}
   "subscriptionId": "<<replace with id from 21e response>>",
   "frequencyType": "WEEKLY"
 }
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 22. PROVISION — SET productType
+###     productType determines which API operations this product may use.
+###     Replaces the old "merchantType" key (renamed in this version).
+### ═════════════════════════════════════════════════════════════════════════
+
+### 22a. Provision as PREAUTHORIZED_ONLY (required for preauth/mandate endpoints)
+POST {{baseUrl}}/provision
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "callbackUrl": "{{callbackUrl}}",
+  "productType": "PREAUTHORIZED_ONLY"
+}
+
+###
+
+### 22b. Provision as HYBRID (auto-schedule + manual trigger on failure)
+POST {{baseUrl}}/provision
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "callbackUrl": "{{callbackUrl}}",
+  "productType": "HYBRID"
+}
+
+###
+
+### 22c. Provision as SUBSCRIPTIONS_ONLY (automatic debits only, no preauth)
+POST {{baseUrl}}/provision
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "callbackUrl": "{{callbackUrl}}",
+  "productType": "SUBSCRIPTIONS_ONLY"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 23. DAILY SUBSCRIPTION — VALIDATION GUARDS
+###     DAILY subscriptions have two extra rules:
+###       1. notificationStatus cannot be true (no need to notify on daily debits)
+###       2. retryAttempts cannot exceed 1 (a retry happens the next day = next cycle)
+### ═════════════════════════════════════════════════════════════════════════
+
+### 23a. DAILY + notificationStatus=true — expect responseCode 100
+POST {{baseUrl}}/subscription/subscribe
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "debitAccount": "0241234001",
+  "debitAmount": "10.00",
+  "frequencyType": "DAILY",
+  "startDate": "2026-06-01",
+  "debitDay": "1",
+  "debitTime": "08:00",
+  "channel": "MTN",
+  "currency": "GHS",
+  "referenceNo": "REF_DAILY_NOTIFY_ERR",
+  "notificationStatus": true
+}
+
+###
+
+### 23b. DAILY + retryAttempts=3 in config — expect responseCode 100
+POST {{baseUrl}}/subscription/subscribe
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "debitAccount": "0241234001",
+  "debitAmount": "10.00",
+  "frequencyType": "DAILY",
+  "startDate": "2026-06-01",
+  "debitDay": "1",
+  "debitTime": "08:00",
+  "channel": "MTN",
+  "currency": "GHS",
+  "referenceNo": "REF_DAILY_RETRY_ERR",
+  "configuration": [
+    { "name": "retryAttempts", "value": "3" }
+  ]
+}
+
+###
+
+### 23c. DAILY + retryAttempts=1 in config — valid (1 is the max allowed for DAILY)
+POST {{baseUrl}}/subscription/subscribe
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "debitAccount": "0241234001",
+  "debitAmount": "10.00",
+  "frequencyType": "DAILY",
+  "startDate": "2026-06-01",
+  "debitDay": "1",
+  "debitTime": "08:00",
+  "channel": "MTN",
+  "currency": "GHS",
+  "referenceNo": "REF_DAILY_RETRY_OK",
+  "configuration": [
+    { "name": "retryAttempts", "value": "1" }
+  ]
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 24. CONFIG FALLBACK FROM PROVISION
+###     If no configuration list is sent with subscribe, the values
+###     provisioned in /provision (retryAttempts, skipFactor, etc.) are used.
+###     Steps: 1) run 1a (provision with retryAttempts=3), 2) run 24a (subscribe
+###     with no configuration), 3) check the stored record — retryAttempts should be 3.
+### ═════════════════════════════════════════════════════════════════════════
+
+### 24a. Subscribe without configuration — defaults taken from provision
+POST {{baseUrl}}/subscription/subscribe
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "debitAccount": "0241234001",
+  "debitAmount": "50.00",
+  "frequencyType": "MONTHLY",
+  "startDate": "2026-06-01",
+  "debitDay": "15",
+  "debitTime": "14:30",
+  "channel": "MTN",
+  "currency": "GHS",
+  "referenceNo": "REF_DEFAULT_CONFIG",
+  "triggerDebitStatus": true
+}
+
+###
+
+### 24b. Check the subscription record — configuration should show retryAttempts=3 from provision
+POST {{baseUrl}}/subscription/retrieve/details/thirdpartyreferenceno
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "referenceId": "REF_DEFAULT_CONFIG",
+  "productId": "{{productId}}"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 25. RETRY SIMULATION — TRANSIENT FAILURE SCENARIOS
+###     Account suffix 002: fails attempt 0, succeeds on attempt 1.
+###     Account suffix 003: fails attempts 0 and 1, succeeds on attempt 2.
+###     After subscribing, wait for the automatic RetryScheduler (fires every 30s)
+###     to pick up the FAILED transaction and fire the next attempt.
+###     Use /debug/store (19a) to watch status change: FAILED → RETRYING → SUCCESS.
+### ═════════════════════════════════════════════════════════════════════════
+
+### 25a. Subscribe with account ending 002 (fail once, then succeed)
+###      Provision must set triggerDebitStatus=true and retryAttempts >= 1
+POST {{baseUrl}}/subscription/subscribe
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "debitAccount": "0241234002",
+  "debitAmount": "50.00",
+  "frequencyType": "MONTHLY",
+  "startDate": "2026-06-01",
+  "debitDay": "15",
+  "debitTime": "14:30",
+  "channel": "MTN",
+  "currency": "GHS",
+  "referenceNo": "REF_RETRY_002",
+  "triggerDebitStatus": true,
+  "configuration": [
+    { "name": "retryAttempts", "value": "2" }
+  ]
+}
+
+###
+
+### 25b. Subscribe with account ending 003 (fail twice, succeed on 3rd attempt)
+POST {{baseUrl}}/subscription/subscribe
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "debitAccount": "0241234003",
+  "debitAmount": "50.00",
+  "frequencyType": "MONTHLY",
+  "startDate": "2026-06-01",
+  "debitDay": "15",
+  "debitTime": "14:30",
+  "channel": "MTN",
+  "currency": "GHS",
+  "referenceNo": "REF_RETRY_003",
+  "triggerDebitStatus": true,
+  "configuration": [
+    { "name": "retryAttempts", "value": "3" }
+  ]
+}
+
+###
+
+### 25c. Check transaction status after retry cycle (wait 30–90s for scheduler to fire)
+POST {{baseUrl}}/transaction/check-status
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "reference": "REF_RETRY_002",
+  "productId": "{{productId}}",
+  "mandateId": "<<replace with mandateId from 25a response>>"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 26. RETRY COLLISION GUARD — trigger-debit blocked while RETRYING
+###     Step 1: Subscribe with account 003 (fails twice → 2 retries needed).
+###     Step 2: Wait 30s for the first retry to start (status → RETRYING).
+###     Step 3: While status is RETRYING, immediately call trigger-debit.
+###             Expect responseCode 100: "A retry is already in progress..."
+### ═════════════════════════════════════════════════════════════════════════
+
+### 26a. Trigger debit while scheduler has set status to RETRYING — expect blocked
+POST {{baseUrl}}/subscription/trigger-debit
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "referenceId": "REF_RETRY_003",
+  "productId": "{{productId}}"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 27. EXHAUSTED STATUS — all retries consumed without success
+###     Subscribe with account 101 (always fails) and retryAttempts=2.
+###     After 2 scheduler cycles (~60s) the transaction should reach EXHAUSTED.
+###     An EXHAUSTED transaction is terminal — the scheduler will never pick it up again.
+### ═════════════════════════════════════════════════════════════════════════
+
+### 27a. Subscribe with always-fail account + limited retries
+POST {{baseUrl}}/subscription/subscribe
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "debitAccount": "0241234101",
+  "debitAmount": "50.00",
+  "frequencyType": "MONTHLY",
+  "startDate": "2026-06-01",
+  "debitDay": "15",
+  "debitTime": "14:30",
+  "channel": "MTN",
+  "currency": "GHS",
+  "referenceNo": "REF_EXHAUST_101",
+  "triggerDebitStatus": true,
+  "configuration": [
+    { "name": "retryAttempts", "value": "2" }
+  ]
+}
+
+###
+
+### 27b. Check status after ~60s — expect status EXHAUSTED
+POST {{baseUrl}}/transaction/check-status
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: {{country}}
+
+{
+  "reference": "REF_EXHAUST_101",
+  "productId": "{{productId}}",
+  "mandateId": "<<replace with mandateId from 27a response>>"
+}
+
+
+### ═════════════════════════════════════════════════════════════════════════
+### 28. CHANNEL ALIASING — VODAFONE → TELECEL (GH only)
+###     In Ghana, Vodafone rebranded to Telecel. Sending "VODAFONE" as the
+###     channel with x-country: GH is silently remapped to TELECEL internally.
+###     The subscription is created successfully; check /debug/store to confirm
+###     the stored channel value is "TELECEL", not "VODAFONE".
+### ═════════════════════════════════════════════════════════════════════════
+
+### 28a. Subscribe with channel=VODAFONE in GH — expect success, channel stored as TELECEL
+POST {{baseUrl}}/subscription/subscribe
+Content-Type: application/json
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: GH
+
+{
+  "merchantId": "{{merchantId}}",
+  "productId": "{{productId}}",
+  "debitAccount": "0241234001",
+  "debitAmount": "10.00",
+  "frequencyType": "MONTHLY",
+  "startDate": "2026-06-01",
+  "debitDay": "15",
+  "debitTime": "10:00",
+  "channel": "VODAFONE",
+  "currency": "GHS",
+  "referenceNo": "REF_VODAFONE_ALIAS"
+}
+
+###
+
+### 28b. Check the stored subscription — channel field should be TELECEL
+GET {{baseUrl}}/debug/store
+x-transflowId: {{transflowId}}
+x-key: {{apiKey}}
+x-country: GH

@@ -10,5 +10,6 @@ public enum Channel {
     AT,
     AIRTEL,
     BANK,
-    CARD
+    CARD,
+    VODAFONE,
 }

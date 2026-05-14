@@ -60,6 +60,28 @@ If you see a piece of syntax in a file and wonder "what does that even mean?" �
 50. [The difference between subscription trigger-debit and mandate trigger-debit](#50-the-difference-between-subscription-trigger-debit-and-mandate-trigger-debit)
 51. [The Preauthorization feature: how it fits together](#51-the-preauthorization-feature-how-it-fits-together)
 52. [Why the same callback payload works for both subscriptions and preauths](#52-why-the-same-callback-payload-works-for-both-subscriptions-and-preauths)
+53. [Product type enforcement on preauth endpoints](#53-product-type-enforcement-on-preauth-endpoints)
+54. [debitDay validation by frequencyType](#54-debitday-validation-by-frequencytype)
+55. [ProductType vs MerchantType — why types belong to products, not merchants](#55-producttype-vs-merchanttype--why-types-belong-to-products-not-merchants)
+56. [The retry state machine: FAILED → RETRYING → EXHAUSTED](#56-the-retry-state-machine-failed--retrying--exhausted)
+57. [@Scheduled and @EnableScheduling — periodic background tasks](#57-scheduled-and-enablescheduling--periodic-background-tasks)
+58. [fixedDelay vs fixedRate in scheduling](#58-fixeddelay-vs-fixedrate-in-scheduling)
+59. [resolveEffectiveConfig — merging request config with provision defaults](#59-resolveeffectiveconfig--merging-request-config-with-provision-defaults)
+60. [Frequency-based validation constraints (DAILY)](#60-frequency-based-validation-constraints-daily)
+61. [Simulating transient failures with account suffixes 002 and 003](#61-simulating-transient-failures-with-account-suffixes-002-and-003)
+62. [OptionalInt — safely extracting a nullable primitive int from a stream](#62-optionalint--safely-extracting-a-nullable-primitive-int-from-a-stream)
+63. [What is the OpenAPI specification?](#63-what-is-the-openapi-specification)
+64. [Springdoc — auto-generating the spec from your code](#64-springdoc--auto-generating-the-spec-from-your-code)
+65. [Swagger UI — the browser interface that reads the spec](#65-swagger-ui--the-browser-interface-that-reads-the-spec)
+66. [How "Try it out" actually sends requests](#66-how-try-it-out-actually-sends-requests)
+67. [@Tag and @Operation — annotating controllers for the docs](#67-tag-and-operation--annotating-controllers-for-the-docs)
+68. [Security schemes — the Authorize button](#68-security-schemes--the-authorize-button)
+69. [@Parameter(hidden = true) — hiding headers from per-endpoint forms](#69-parameterhidden--true--hiding-headers-from-per-endpoint-forms)
+70. [Customizing Swagger UI via application.properties](#70-customizing-swagger-ui-via-applicationproperties)
+71. [@Schema — documenting individual DTO fields](#71-schema--documenting-individual-dto-fields)
+72. [Text blocks — multiline strings in Java](#72-text-blocks--multiline-strings-in-java)
+73. [Channel aliasing — remapping deprecated values internally](#73-channel-aliasing--remapping-deprecated-values-internally)
+74. [Custom documentation portal — building your own API docs UI](#74-custom-documentation-portal--building-your-own-api-docs-ui)
 
 ---
 
@@ -1583,6 +1605,43 @@ The right answer is almost always: **normalize by default**, then **denormalize 
 - Why async matters for API responsiveness — return immediately, process in the background
 - How to simulate realistic API behaviour (delays, staged callbacks) without a real payment network
 
+**API documentation (OpenAPI / Swagger)**
+- The OpenAPI specification is a machine-readable JSON/YAML description of every endpoint, header, body, and response — tools like Swagger UI, Postman, and code generators all consume it
+- Springdoc scans `@RestController` classes at startup and auto-generates the spec from what it finds — one Gradle dependency is all it takes
+- Swagger UI is a JavaScript SPA bundled inside the springdoc JAR; it fetches `/v3/api-docs` and renders the docs portal; it knows nothing about Java specifically
+- "Try it out" fires real HTTP requests from the browser directly to your running server — not a simulation
+- Security schemes (`@SecurityScheme` + `addSecurityItem`) create the Authorize button — fill headers in once, sent with every request
+- `@Parameter(hidden = true)` removes a `@RequestHeader` from the per-endpoint form without affecting runtime injection — use this when the header is already in the Authorize dialog
+- `@Tag(name, description)` groups controller endpoints into named sidebar sections; `@Operation(summary, description)` gives each endpoint its one-liner and detail text; both support Markdown
+- Swagger UI appearance and behavior are controlled via `springdoc.swagger-ui.*` properties — path, sorters, doc-expansion, try-it-out enabled
+- `@Schema` on DTO fields adds field-level descriptions and example values to the Try It body form — standard for production APIs facing external developers
+- Java text blocks (`"""..."""`) make multiline strings readable; leading indent is stripped based on the least-indented line; `\s` forces a trailing space that would otherwise be trimmed
+
+**Scheduling and retry logic**
+- `@EnableScheduling` + `@Scheduled(fixedDelay = N)` — how to run a task periodically with Spring without any external job queue
+- `fixedDelay` vs `fixedRate`: fixedDelay waits N ms *after* the previous run finishes (prevents overlap); fixedRate starts every N ms regardless of how long the task takes
+- The retry state machine: `FAILED → RETRYING → SUCCESS | FAILED → EXHAUSTED` — why RETRYING and EXHAUSTED are explicit states rather than being inferred from field values
+- Retry collision prevention: the RETRYING status blocks concurrent manual trigger-debit calls during an in-progress scheduler retry
+- `OptionalInt` — the primitive-int counterpart to `Optional<T>`, returned by `mapToInt(...).findFirst()` when a stream might produce no value
+
+**Configuration and validation**
+- `resolveEffectiveConfig()` — merging caller-supplied config with provision defaults: caller wins, provision fills gaps, never overwrites
+- Frequency-based validation constraints: DAILY subscriptions cannot have `notificationStatus=true` or `retryAttempts > 1`, because both make no operational sense at daily frequency
+- ProductType vs MerchantType: the type belongs to the product (one merchant can have products of different types), not the merchant — always ask "which entity does this fact describe?" before deciding where a field lives
+- Transient failure simulation via account suffixes 002 (fail once then succeed) and 003 (fail twice then succeed) — lets you test the full retry cycle without needing a real bank to misbehave
+
+**Channel and value aliasing**
+- Accept old or alias values in the API, remap them internally before any logic runs — callers using stale names don't break, and only one code path exists internally
+- Log every remap at INFO level so you can audit it in production: "Channel changed from VODAFONE to TELECEL"
+
+**Custom documentation portal**
+- Spring Boot automatically serves files in `src/main/resources/static/` at `/` — no controller needed
+- A custom portal reads `/v3/api-docs` via `fetch()` at page load and builds the entire UI from the returned JSON — one source of truth, no manual maintenance
+- CSS Grid with `grid-template-columns: 280px 1fr` (two columns) that transitions to `280px 1fr 460px` (three columns) when a `.panel-open` class is toggled — the try-it panel slides in without a reflow of the rest of the page
+- `sessionStorage` persists auth header values across page reloads but not across tabs — right tradeoff for a sandbox where you want headers to survive a Cmd+R but not leak into a different browser session
+- `$ref` resolution in JavaScript: walk `spec.components.schemas` to turn `{"$ref": "#/components/schemas/Foo"}` into the actual schema object, enabling schema table and example generation
+- `marked.js` (CDN) converts Markdown strings from the spec into HTML in one call — the entire API description, including tables, renders correctly without writing a Markdown parser
+
 ---
 
 ## 48. Enum-based channel validation
@@ -1755,24 +1814,24 @@ The transaction callback works the same way too. Whether the debit was triggered
 
 ---
 
-## 53. Merchant type enforcement on preauth endpoints
+## 53. Product type enforcement on preauth endpoints
 
-The `MerchantType` enum (values: `SUBSCRIPTIONS_ONLY`, `HYBRID`, `PREAUTHORIZED_ONLY`) is stored on `ProvisionRecord` when the merchant provisions. This determines which API operations they may use.
+The `ProductType` enum (values: `SUBSCRIPTIONS_ONLY`, `HYBRID`, `PREAUTHORIZED_ONLY`) is stored on `ProvisionRecord` when the merchant provisions. This determines which API operations that **product** may use. Note: it is `productType`, not `merchantType` — a single merchant can have multiple products, each with a different type (e.g., one SUBSCRIPTIONS_ONLY product for a weekly streaming service and one PREAUTHORIZED_ONLY product for on-demand utility billing).
 
-**Rule:** `/pre-authorization/authorize` and `/mandate/trigger-debit` are only available to `PREAUTHORIZED_ONLY` merchants. `HYBRID` and `SUBSCRIPTIONS_ONLY` merchants are blocked with a `100` response.
+**Rule:** `/pre-authorization/authorize` and `/mandate/trigger-debit` are only available to `PREAUTHORIZED_ONLY` products. `HYBRID` and `SUBSCRIPTIONS_ONLY` products are blocked with a `100` response.
 
-The check lives in a private `checkPreAuthMerchantType(merchantId, productId)` helper in `PreAuthService`. It is called:
+The check lives in a private `checkProductType(merchantId, productId)` helper in `PreAuthService`. It is called:
 
 - In `createPreAuth()` — immediately after header validation, before any other logic.
 - In `triggerMandateDebit()` — after the preAuth record is found (because the request only carries `mandateId`, so we need the stored record to know `merchantId`/`productId`).
 
 ```java
 ProvisionRecord provision = store.getProvision(merchantId, productId);
-if (provision == null || provision.getMerchantType() == null) {
-    return error("Merchant type not configured...");
+if (provision == null || provision.getProductType() == null) {
+    return error("Product type not configured...");
 }
-if (provision.getMerchantType() != MerchantType.PREAUTHORIZED_ONLY) {
-    return error("This operation is only available to PREAUTHORIZED_ONLY merchants");
+if (provision.getProductType() != ProductType.PREAUTHORIZED_ONLY) {
+    return error("This operation is only available to PREAUTHORIZED_ONLY products");
 }
 ```
 
@@ -1799,6 +1858,739 @@ Other preauth operations (check-status, retrieve-details, cancel) do **not** enf
 - `SubscriptionService.update()` — before applying field updates. The validation uses the *effective* frequency and debitDay: the new value if provided in the request, the stored value otherwise. This catches the case where the merchant changes `frequencyType` but does not change `debitDay`, leaving a value that was valid for the old frequency but is out of range for the new one (e.g., `debitDay=20` is valid for MONTHLY but not for WEEKLY).
 
 The helper is `validateDebitDay(FrequencyType frequency, String debitDay)`. It parses `debitDay` as an integer and uses a `switch` expression over `FrequencyType`. Returns `null` on success; an error map with code `"100"` on failure.
+
+---
+
+## 55. ProductType vs MerchantType — why types belong to products, not merchants
+
+This project originally had a `MerchantType` field on `ProvisionRecord`. It was renamed to `ProductType` for a precise reason: **the type is a property of the product, not the merchant**.
+
+A single merchant can offer multiple products at the same time:
+- `PROD_WEEKLY_STREAMING` — auto-debit every week → `SUBSCRIPTIONS_ONLY`
+- `PROD_UTILITY_BILL` — debit on demand when the meter is read → `PREAUTHORIZED_ONLY`
+
+If the type lived on the merchant, both products would have to share the same type, which is wrong. By moving the type to the provision record (keyed by `merchantId + productId`), each product can have its own type.
+
+This is a general design principle: **put attributes where they actually belong**. Ask "what entity does this fact describe?" — and the answer tells you where it should live.
+
+In code, the change was:
+
+```java
+// ProvisionRecord.java — before
+private MerchantType merchantType;
+
+// ProvisionRecord.java — after
+private ProductType productType;
+```
+
+The JSON key in API requests changed from `"merchantType"` to `"productType"`. Any existing requests that used the old key will be ignored (the field will be null, and the type check will return an error).
+
+---
+
+## 56. The retry state machine: FAILED → RETRYING → EXHAUSTED
+
+When a subscription debit fails (response code ≠ `"01"`), the transaction isn't just left at `FAILED`. It enters a state machine that the `RetryScheduler` drives forward.
+
+**States on `TransactionRecord.status`:**
+
+| Status | Meaning |
+|---|---|
+| `PROCESSING` | Initial state — callback fired, result not yet known |
+| `SUCCESS` | Debit succeeded |
+| `FAILED` | Debit failed. If `retriesUsed < maxRetries`, the scheduler will pick it up. |
+| `RETRYING` | Scheduler has picked up this record and is currently firing the next attempt. Manual trigger-debit is blocked. |
+| `EXHAUSTED` | All retry attempts consumed without success. Terminal — scheduler will never touch it again. |
+
+**Why `RETRYING` is needed:**
+
+Without it, there is a race condition: the scheduler fires a retry and then a merchant simultaneously calls `trigger-debit`. Two callbacks fire at the same time for the same reference, producing duplicate transactions. The `RETRYING` status closes that window — `triggerDebit()` in `LifecycleService` checks for both `PROCESSING` and `RETRYING` and rejects the call.
+
+**How `EXHAUSTED` works:**
+
+`getAllFailedTransactions()` in the store filters by `"FAILED"` status AND `retriesUsed < maxRetries`. An `EXHAUSTED` transaction has `status = "EXHAUSTED"`, so the `"FAILED"` filter excludes it — it will never be picked up again.
+
+If the transaction were left at `FAILED` with `retriesUsed == maxRetries`, the filter's second condition (`retriesUsed < maxRetries` = false) would also exclude it. The `EXHAUSTED` status is redundant for filtering, but it is essential for **human readability** — looking at a record and knowing it is permanently terminal is much clearer than trying to decode `retriesUsed == maxRetries`.
+
+The fields that track this:
+
+```java
+private int retriesUsed;  // how many retries have been fired so far
+private int maxRetries;   // maximum retries allowed (from configuration)
+```
+
+---
+
+## 57. @Scheduled and @EnableScheduling — periodic background tasks
+
+Spring has a built-in scheduler that can run a method on a fixed interval with a single annotation.
+
+**Step 1: enable scheduling on the application class**
+
+```java
+@SpringBootApplication
+@EnableScheduling          // ← this activates the scheduler
+public class DirectDebitSandboxApplication { ... }
+```
+
+Without `@EnableScheduling`, any `@Scheduled` annotations in the codebase are silently ignored — the methods never run, and there is no error message.
+
+**Step 2: annotate the method**
+
+```java
+@Scheduled(fixedDelay = 30_000)    // run 30 seconds after the previous run finishes
+public void processRetries() {
+    // ...
+}
+```
+
+The class must be a Spring-managed component (`@Component`, `@Service`, etc.) for `@Scheduled` to work. Spring creates the object and registers the schedule at startup.
+
+The `30_000` uses Java's numeric literal underscores — you can put `_` anywhere in a number literal to improve readability. `30_000` is the same as `30000`, just easier to read.
+
+See [RetryScheduler.java](src/main/java/com/itc/direct_debit_sandbox/subscriptions/lifecycle/RetryScheduler.java) and [DirectDebitSandboxApplication.java](src/main/java/com/itc/direct_debit_sandbox/DirectDebitSandboxApplication.java).
+
+---
+
+## 58. fixedDelay vs fixedRate in scheduling
+
+`@Scheduled` has two main timing parameters that look similar but behave very differently under load.
+
+**`fixedDelay`** — wait N milliseconds *after* the previous execution finishes, then run again.
+
+```
+Task starts → runs for 10s → finishes → wait 30s → starts again → ...
+```
+
+If a single run takes longer than expected (e.g., the database is slow), the next run simply waits. Tasks never pile up. This is what `RetryScheduler` uses because retries must not overlap.
+
+**`fixedRate`** — start a new execution every N milliseconds, regardless of when the previous one finished.
+
+```
+t=0s: task starts → runs for 10s
+t=30s: task starts → runs for 10s
+t=60s: task starts → ...
+```
+
+If a run takes longer than the interval, Spring queues the next one and it starts immediately after. This can cause a pile-up if the task is consistently slow.
+
+**Rule of thumb:**
+- Use `fixedDelay` for recurring jobs where you want a cooldown between runs (polling, retries, cleanup jobs).
+- Use `fixedRate` for time-sensitive heartbeats where you care about *how often* something runs, not how long it takes.
+
+For `RetryScheduler`, `fixedDelay` is correct: after all retries in one pass are processed, wait 30 seconds before looking for more. This prevents two retry passes from running simultaneously.
+
+---
+
+## 59. resolveEffectiveConfig — merging request config with provision defaults
+
+When a merchant subscribes, they can optionally pass a `configuration` list. If they don't, the system should fall back to the defaults registered at provision time.
+
+The `resolveEffectiveConfig()` helper in `SubscriptionService` handles this merge:
+
+```java
+private List<ConfigurationItem> resolveEffectiveConfig(
+        List<ConfigurationItem> requested, ProvisionRecord provision) {
+
+    List<ConfigurationItem> resolved = requested != null
+            ? new ArrayList<>(requested)  // start with what the caller sent
+            : new ArrayList<>();          // or an empty list if nothing was sent
+
+    Set<String> present = resolved.stream()
+            .map(ConfigurationItem::getName)
+            .collect(Collectors.toSet());
+
+    // For each default on the provision, only add it if the caller didn't already set it
+    if (provision != null) {
+        if (!present.contains("retryAttempts") && provision.getRetryAttempts() != null) {
+            ConfigurationItem item = new ConfigurationItem();
+            item.setName("retryAttempts");
+            item.setValue(provision.getRetryAttempts().toString());
+            resolved.add(item);
+        }
+        // same for skipFactor, daysToDebitDayNotice ...
+    }
+    return resolved;
+}
+```
+
+Key design choices:
+
+1. **Caller wins** — if the caller sent `retryAttempts`, the provision default is ignored. This respects the principle that explicit input beats inferred defaults.
+2. **Never overwrite** — we build a `Set<String>` of names already present before checking the provision, so we only fill gaps.
+3. **Null-safe** — the caller might not send any configuration at all (`requested` is null), so we start from an empty list.
+
+The resolved config is saved on `SubscriptionRecord.configuration`, so every subsequent operation (callback, retry scheduler) reads the effective values directly from the record without re-resolving.
+
+---
+
+## 60. Frequency-based validation constraints (DAILY)
+
+Not all configuration is valid for all frequencies. Two rules are specific to `DAILY` subscriptions:
+
+**Rule 1: `notificationStatus` cannot be `true`**
+
+`notificationStatus=true` means "notify the account holder before each debit." For a daily debit, sending a notification every single day is noise. The API specification explicitly disallows it.
+
+```java
+if (FrequencyType.DAILY == req.getFrequencyType()
+        && Boolean.TRUE.equals(req.getNotificationStatus())) {
+    return error("notificationStatus cannot be enabled for DAILY subscriptions");
+}
+```
+
+**Rule 2: `retryAttempts` cannot exceed 1**
+
+A retry is fired one day after the failed attempt. For a daily subscription, "retry in one day" means the retry fires on the same day as the next scheduled debit. Retrying more than once would mean the retries pile up into the next cycles. The API treats one retry as the maximum sensible value for daily frequency.
+
+```java
+if (FrequencyType.DAILY == req.getFrequencyType()) {
+    OptionalInt retryAttempts = getConfigIntValue(effectiveConfig, "retryAttempts");
+    if (retryAttempts.isPresent() && retryAttempts.getAsInt() > 1) {
+        return error("retryAttempts cannot exceed 1 for DAILY subscriptions");
+    }
+}
+```
+
+Note that this check runs against the **effective config** (after fallback resolution from the provision), not just the raw request config. This means if the provision sets `retryAttempts=3` and the caller sends a DAILY subscribe request with no config override, the check will still catch it.
+
+---
+
+## 61. Simulating transient failures with account suffixes 002 and 003
+
+The `ScenarioEngine` originally supported deterministic outcomes — an account always succeeded or always failed based on its suffix. But real payment systems have *transient* failures: the first attempt fails (network blip, temporary lock), and the retry succeeds.
+
+To test retry logic, you need an account that fails a specific number of times and then succeeds. The engine adds two new suffixes:
+
+```java
+case "002" -> attemptNumber >= 1 ? "01" : "101";
+// Attempt 0 (first debit): fail (101 = insufficient funds)
+// Attempt 1+ (first retry): succeed (01)
+
+case "003" -> attemptNumber >= 2 ? "01" : "101";
+// Attempts 0–1: fail
+// Attempt 2+ (second retry): succeed
+```
+
+`attemptNumber` is passed into `fireTransactionCallback(record, attemptNumber)` by the `RetryScheduler`. The first callback (from the initial subscription) always calls with `attemptNumber = 0`. Each retry increments the number.
+
+**Using these in tests:**
+
+1. Provision the merchant with `retryAttempts >= 2` (for suffix 003) and `triggerDebitStatus: true`.
+2. Subscribe with an account ending `002` or `003`.
+3. Watch `/debug/store` — the transaction should go `FAILED → RETRYING → SUCCESS`.
+4. How long to wait: the initial callback fires ~7s after subscribe; each retry fires 30s later (one per `RetryScheduler` cycle).
+
+---
+
+## 62. OptionalInt — safely extracting a nullable primitive int from a stream
+
+In `SubscriptionService`, the code needs to read a numeric configuration value from a list. The value might not be present at all (the list is empty or the name wasn't found).
+
+Java has `Optional<T>` for objects and `OptionalInt` specifically for the `int` primitive. Using `OptionalInt` avoids the boxing overhead of `Optional<Integer>` and makes the absence case explicit.
+
+```java
+private OptionalInt getConfigIntValue(List<ConfigurationItem> config, String name) {
+    if (config == null) return OptionalInt.empty();
+    return config.stream()
+            .filter(c -> name.equals(c.getName()))
+            .mapToInt(c -> {
+                try { return Integer.parseInt(c.getValue()); }
+                catch (NumberFormatException e) { return -1; }
+            })
+            .findFirst();
+    // Returns OptionalInt.of(3) if found, OptionalInt.empty() if not found
+}
+```
+
+Usage:
+
+```java
+OptionalInt retryAttempts = getConfigIntValue(effectiveConfig, "retryAttempts");
+if (retryAttempts.isPresent() && retryAttempts.getAsInt() > 1) {
+    // validation error
+}
+```
+
+Why not just return `-1` as a sentinel for "not found"? Because `-1` is a valid return value for a parse failure and would be confusing. `OptionalInt` makes the two cases unambiguous: *absent* (key not in list) vs *present but invalid* (you could refine this further, but here the `catch` maps both to the same downstream behaviour).
+
+The key `OptionalInt` methods:
+- `OptionalInt.empty()` — create an absent value
+- `OptionalInt.of(value)` — wrap a found value
+- `.isPresent()` — returns `true` if a value exists
+- `.getAsInt()` — returns the value (throws if called when empty — always check `isPresent()` first)
+
+---
+
+## 63. What is the OpenAPI specification?
+
+OpenAPI (formerly Swagger) is a **standard format for describing HTTP APIs**. It is a JSON or YAML document that lists every endpoint, its method, its headers, its request body shape, and its response codes — all in a machine-readable format.
+
+A minimal OpenAPI document looks like this (YAML):
+
+```yaml
+openapi: "3.0.3"
+info:
+  title: "ITC Direct Debit Sandbox API"
+  version: "2.0"
+paths:
+  /subscription/subscribe:
+    post:
+      summary: "Create a subscription"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubscriptionRequestDto"
+      responses:
+        "200":
+          description: "Processing started"
+```
+
+Why does this matter?
+
+1. **Tools can read it** — documentation portals, code generators, API testing tools, and mock servers all know how to consume an OpenAPI spec without any custom code.
+2. **It is language-neutral** — a Java backend, a Python client, and a JavaScript frontend can all work from the same spec file.
+3. **It is the industry standard** — Postman, Insomnia, AWS API Gateway, and dozens of other tools import and export OpenAPI specs.
+
+In this project, `springdoc` generates the spec **automatically from your Java code** and serves it at `/v3/api-docs`. You never write the YAML by hand.
+
+---
+
+## 64. Springdoc — auto-generating the spec from your code
+
+`springdoc-openapi` is a library that inspects your Spring controllers at startup and builds an OpenAPI spec from what it finds.
+
+**How it works:**
+
+1. On startup, springdoc scans every class annotated with `@RestController`.
+2. For each `@GetMapping`, `@PostMapping`, etc., it creates one entry in the spec.
+3. For each `@RequestBody`, it reads the DTO class and generates a JSON schema from the field names and types.
+4. For each `@RequestHeader`, it adds a header parameter.
+5. If you add `@Operation`, `@Tag`, or `@Parameter` annotations, it uses those for names and descriptions. If you don't, it infers sensible defaults.
+6. The finished spec is served as JSON at `/v3/api-docs`.
+
+**Adding it to a Spring Boot project is one line in `build.gradle.kts`:**
+
+```kotlin
+implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9")
+```
+
+That's it. No other configuration is required to get a working spec. The Swagger UI page is automatically available at `/swagger-ui.html` (or at `/docs` if you configure `springdoc.swagger-ui.path=/docs`).
+
+**Where does the `@Bean OpenAPI` in `OpenApiConfig.java` fit in?**
+
+Springdoc already generates the spec without it. The `@Bean` method only adds metadata: the API title, version, description, server URL, and which security schemes apply globally. Think of it as the "cover page" of the spec — without it the spec still works, it just has no title.
+
+See [OpenApiConfig.java](src/main/java/com/itc/direct_debit_sandbox/config/OpenApiConfig.java).
+
+---
+
+## 65. Swagger UI — the browser interface that reads the spec
+
+Swagger UI is a **single-page web application** bundled inside the `springdoc-openapi-starter-webmvc-ui` JAR. When Spring Boot starts, springdoc serves the Swagger UI static files (HTML, CSS, JavaScript) from inside its own JAR, at the path you configure.
+
+The flow when you open `http://localhost:8080/docs`:
+
+```
+Browser loads Swagger UI HTML/JS
+       ↓
+Swagger UI fetches GET /v3/api-docs
+       ↓ (receives the OpenAPI JSON spec)
+Swagger UI parses the spec:
+  - builds the left sidebar from the tags and operation summaries
+  - renders the documentation from summaries and descriptions
+  - builds the "Try it out" form fields from the request body schemas
+       ↓
+User sees the docs portal
+```
+
+Swagger UI itself is **just JavaScript** running in the browser. It doesn't know anything about Java, Spring, or your business logic. It only knows about the OpenAPI spec it downloaded from `/v3/api-docs`. If you want to update what Swagger UI shows, you update your annotations — the spec regenerates automatically on the next startup.
+
+This is why the same Swagger UI can document any API regardless of the backend language: PHP, Go, Node.js — as long as the backend serves an OpenAPI spec, Swagger UI can display it.
+
+---
+
+## 66. How "Try it out" actually sends requests
+
+When you click "Try it out" in Swagger UI, fill in the body, and click "Execute", the browser sends a real HTTP request directly from your browser to your server.
+
+```
+Browser (running Swagger UI JavaScript)
+       ↓  (real HTTP POST to http://localhost:8080/subscription/subscribe)
+Spring Boot on localhost:8080
+       ↓
+Response comes back
+       ↓
+Swagger UI displays: curl command, request URL, response body, status code
+```
+
+**This is important to understand:**
+
+- It is not a simulated request. It is a live HTTP call.
+- The request comes from your browser, not from a Postman desktop app or a separate process.
+- Your Spring Boot server must be running for Execute to work.
+- If your server restarts and resets its in-memory state, any IDs you filled in the form become invalid.
+
+**The Authorize button:**
+
+When you click Authorize and fill in `x-transflowId`, `x-key`, and `x-country`, Swagger UI stores those values in browser memory (not in a cookie, not in localStorage — just in the JavaScript object). Every request fired via Execute automatically includes those headers. This is equivalent to setting "Headers" in Postman.
+
+**The curl preview:**
+
+Below every Execute button, Swagger UI shows the equivalent `curl` command. This is exactly the command you could paste into a terminal and get the same result. It's a great way to learn curl syntax.
+
+---
+
+## 67. @Tag and @Operation — annotating controllers for the docs
+
+Without annotations, springdoc still generates a working spec, but endpoint names are auto-inferred and everything lands in one unnamed group. Annotations are how you organize and describe the docs.
+
+**`@Tag`** on a controller class groups all its endpoints under a named section in the left sidebar:
+
+```java
+@Tag(name = "Subscriptions", description = "Create and manage recurring debit subscriptions")
+@RestController
+@RequestMapping("/subscription")
+public class SubscriptionController { ... }
+```
+
+All endpoints in this controller now appear under the "Subscriptions" heading. The `description` is shown as a subtitle under the heading.
+
+**`@Operation`** on a method sets the summary and description for one endpoint:
+
+```java
+@Operation(
+    summary = "Create a subscription",
+    description = "Sets up a new recurring debit mandate. Returns `03` immediately. " +
+        "A preapproval callback fires after ~2 s, followed by a transaction callback after ~5 s."
+)
+@PostMapping("/subscribe")
+public Map<String, Object> subscribe(...) { ... }
+```
+
+- `summary` → the one-line label shown in the collapsed sidebar entry
+- `description` → the longer text shown in the expanded documentation panel; supports Markdown
+
+Without `@Operation`, springdoc uses the method name (`subscribe`) as the summary — readable but not ideal.
+
+**Markdown in descriptions:**
+
+Swagger UI renders Markdown inside `description` strings. You can use bold (`**text**`), backtick code spans (`` `fieldName` ``), tables, and bullet lists. This is how the API overview description in `OpenApiConfig.java` renders a full table of scenario outcomes.
+
+---
+
+## 68. Security schemes — the Authorize button
+
+In the real ITC API, every request needs three custom headers: `x-transflowId`, `x-key`, and `x-country`. Filling them in on every individual Try It form would be tedious. Security schemes let you fill them in once.
+
+**How it works in this project:**
+
+Step 1 — declare the header as a security scheme in `OpenApiConfig.java`:
+
+```java
+@SecurityScheme(
+    name = "x-transflowId",
+    type = SecuritySchemeType.APIKEY,
+    in = SecuritySchemeIn.HEADER,
+    paramName = "x-transflowId",
+    description = "Transflow session ID issued at login"
+)
+```
+
+This tells Swagger UI: "there is a credential called `x-transflowId` that goes in a request header."
+
+Step 2 — apply it globally via the `@Bean` method:
+
+```java
+.addSecurityItem(new SecurityRequirement()
+    .addList("x-transflowId")
+    .addList("x-key")
+    .addList("x-country"))
+```
+
+This says: "every endpoint in this API requires all three of these credentials."
+
+Step 3 — Swagger UI shows an **Authorize** button. The user fills in the three values once. From then on, every Execute call includes all three headers automatically.
+
+**Why `SecuritySchemeType.APIKEY`?**
+
+OpenAPI supports several security types: `HTTP` (for Bearer/Basic), `APIKEY`, `OAUTH2`, and `OPENIDCONNECT`. Since `x-transflowId` and `x-key` are custom string headers (not a standard Bearer token), `APIKEY` is the correct type. `SecuritySchemeIn.HEADER` tells Swagger UI to put the value in a request header rather than a query parameter or cookie.
+
+---
+
+## 69. @Parameter(hidden = true) — hiding headers from per-endpoint forms
+
+When springdoc scans a method, it reads every `@RequestHeader` parameter and adds it to the "Parameters" section of that endpoint in Swagger UI. Without any extra work, `x-transflowId`, `x-key`, and `x-country` would appear as separate input fields on every single endpoint.
+
+That would work, but it creates a bad experience: three redundant fields on every form, even though you already filled them in via the Authorize button.
+
+The fix is `@Parameter(hidden = true)`:
+
+```java
+@PostMapping("/subscribe")
+public Map<String, Object> subscribe(
+    @Parameter(hidden = true) @RequestHeader("x-transflowId") String transflowId,
+    @Parameter(hidden = true) @RequestHeader("x-key") String apiKey,
+    @Parameter(hidden = true) @RequestHeader("x-country") String country,
+    @Valid @RequestBody SubscriptionRequestDto req) { ... }
+```
+
+`hidden = true` tells springdoc: "don't include this parameter in the spec." The header is still injected by Spring at runtime (the method still receives the value) — `hidden` only affects the documentation, not the runtime behavior.
+
+The result: the Try It form shows only the JSON body. The headers come from the Authorize button. This mirrors how the real MomoDeveloper portal works — credentials go in a separate auth section, not repeated on every form.
+
+---
+
+## 70. Customizing Swagger UI via application.properties
+
+Springdoc exposes many settings as Spring Boot properties. All of them start with `springdoc.`:
+
+```properties
+# Where Swagger UI is served (default is /swagger-ui.html)
+springdoc.swagger-ui.path=/docs
+
+# Where the raw OpenAPI JSON spec is served
+springdoc.api-docs.path=/v3/api-docs
+
+# How tags and operations are sorted in the sidebar
+springdoc.swagger-ui.tags-sorter=alpha          # alphabetical by tag name
+springdoc.swagger-ui.operations-sorter=alpha    # alphabetical by path within each tag
+
+# Show how long each request took in the Try It response panel
+springdoc.swagger-ui.display-request-duration=true
+
+# Start all endpoints in "Try it out" mode by default
+springdoc.swagger-ui.try-it-out-enabled=true
+
+# Collapse all endpoint groups by default (cleaner initial view)
+springdoc.swagger-ui.doc-expansion=none
+```
+
+**`doc-expansion` options:**
+
+| Value | Effect |
+|-------|--------|
+| `none` | All groups collapsed on load — clean, like the MomoDeveloper portal |
+| `list` | Groups expanded, individual operations collapsed |
+| `full` | Everything expanded (can be overwhelming for large APIs) |
+
+**Excluding an endpoint from the docs** — use `@Hidden` on the class or method:
+
+```java
+@Hidden
+@GetMapping("/internal-health")
+public String health() { return "ok"; }
+```
+
+**Grouping into multiple separate docs** (useful for a public + internal split):
+
+```properties
+springdoc.group-configs[0].group=public
+springdoc.group-configs[0].paths-to-match=/subscription/**, /transaction/**
+
+springdoc.group-configs[1].group=internal
+springdoc.group-configs[1].paths-to-match=/debug/**
+```
+
+Each group gets its own Swagger UI selector and its own `/v3/api-docs/public`, `/v3/api-docs/internal` URL.
+
+---
+
+## 71. @Schema — documenting individual DTO fields
+
+`@Tag` and `@Operation` describe endpoints. `@Schema` describes individual fields on request/response DTOs.
+
+Without `@Schema`, springdoc infers the field name and type from the Java declaration:
+
+```java
+private String debitAccount;
+// → shows up in Swagger as: debitAccount (string)
+```
+
+With `@Schema`, you can add a description and an example:
+
+```java
+@Schema(description = "Mobile money or bank account number to debit",
+        example = "0241234001")
+private String debitAccount;
+```
+
+Swagger UI then shows the description and pre-fills the example value in the Try It body.
+
+**`@Schema` on an enum** gives human-readable labels to each enum constant:
+
+```java
+public enum FrequencyType {
+    @Schema(description = "Debit every day") DAILY,
+    @Schema(description = "Debit every week") WEEKLY,
+    @Schema(description = "Debit every month") MONTHLY,
+    @Schema(description = "Debit every year") YEARLY
+}
+```
+
+**`@Schema` on the DTO class itself** adds a top-level description:
+
+```java
+@Schema(description = "Request body for creating a recurring subscription")
+@Data
+public class SubscriptionRequestDto { ... }
+```
+
+This project doesn't use `@Schema` yet — the field names are descriptive enough for a sandbox. But in a production API facing external developers, `@Schema` on every field is standard practice.
+
+---
+
+## 72. Text blocks — multiline strings in Java
+
+In `OpenApiConfig.java`, the API description is written as a **text block**:
+
+```java
+.description("""
+    Sandbox environment for testing ITC Direct Debit v2 integrations.
+
+    ## Before you start
+
+    Every API flow begins with a call to **POST /provision**.
+    """)
+```
+
+Text blocks were introduced in Java 15. Before them, multiline strings required concatenation:
+
+```java
+// Old way — unreadable
+.description("Sandbox environment for testing ITC Direct Debit v2 integrations.\n\n" +
+             "## Before you start\n\n" +
+             "Every API flow begins with a call to **POST /provision**.")
+```
+
+**Text block rules:**
+
+- Opened with `"""` followed by a newline. You cannot start content on the same line as the opening `"""`.
+- Closed with `"""` which can be on its own line (then there's a trailing newline) or at the end of the last content line (no trailing newline).
+- Leading whitespace is stripped based on the least-indented line — so you can indent the content to match the surrounding code without that indentation appearing in the final string.
+- Escape sequences (`\n`, `\t`, `\"`) still work but are rarely needed since you can just write the actual newline or quote.
+
+Text blocks are useful wherever you need a long string: SQL queries, JSON templates, HTML snippets, Markdown documentation. They make the code far more readable than string concatenation.
+
+The `\s` at the end of a line forces a trailing space that would otherwise be stripped by the indentation normalization. You can see this used in the description:
+
+```java
+`merchantId` and `productId` must be **UUIDs**\s
+(e.g. `c64bf5f9-f147-4232-8d00-f28105823d6a`).
+```
+
+Without `\s`, the two lines would be joined without a space; with it, a single space separates them.
+
+---
+
+## 73. Channel aliasing — remapping deprecated values internally
+
+In Ghana (`x-country: GH`), the carrier previously known as Vodafone rebranded to Telecel. The API spec uses `TELECEL` as the canonical value, but existing integrations may still send `VODAFONE`. Rather than rejecting those requests or maintaining two code paths forever, the service silently remaps the alias before any validation logic runs:
+
+```java
+if (country.equals("GH") && Channel.VODAFONE == req.getChannel()) {
+    req.setChannel(Channel.TELECEL);
+    log.info("Channel changed from VODAFONE to TELECEL");
+}
+```
+
+To make this possible, `VODAFONE` is kept in the `Channel` enum as a valid deserialization target:
+
+```java
+public enum Channel {
+    MTN, TELECEL, AT, AIRTEL, BANK, CARD,
+    VODAFONE,  // alias for TELECEL in GH — remapped in SubscriptionService before any logic runs
+}
+```
+
+**Why this approach is better than rejecting `VODAFONE`:**
+
+- Breaking old integrations is expensive. Callers may have the value hardcoded in their production systems.
+- Internal logic only ever sees `TELECEL` — one canonical path, no `if (ch == VODAFONE || ch == TELECEL)` scattered everywhere.
+- The remap is logged at INFO level, so you have an audit trail in production.
+
+**The general pattern:**
+
+1. Keep the alias in the enum (so Jackson can deserialize it without a 400 error).
+2. Add one early-exit remap block at the top of the service method, before guards.
+3. Log the remap so it's visible.
+4. All subsequent logic uses only the canonical value.
+
+This is sometimes called a **value migration shim** — you're absorbing the caller's stale vocabulary at the boundary so the core domain stays clean.
+
+---
+
+## 74. Custom documentation portal — building your own API docs UI
+
+This project ships two documentation portals side-by-side:
+
+| URL | What it is |
+|-----|------------|
+| `/` | Hand-built three-panel portal (index.html + docs.css + docs.js) |
+| `/docs` | Swagger UI bundled in the springdoc JAR |
+| `/v3/api-docs` | Raw OpenAPI JSON spec generated by springdoc |
+
+### How the custom portal works
+
+**Static file serving** — Spring Boot automatically serves everything in `src/main/resources/static/` at the root path. No controller, no configuration needed.
+
+**Spec loading** — On page load, `docs.js` calls `fetch('/v3/api-docs')` and gets the OpenAPI JSON object. Every panel is rendered from that single JSON. If you update a controller annotation, the portal reflects it on next refresh automatically.
+
+```js
+async function fetchSpec() {
+  const res = await fetch('/v3/api-docs');
+  spec = await res.json();
+  renderSidebar();
+  renderWelcome();
+}
+```
+
+**Relative URLs** — All fetch calls use relative paths (`/v3/api-docs`, `/subscription/subscribe`, etc.). This means the portal works identically when accessed via `localhost:8080` or the ngrok tunnel — no hardcoded hostname anywhere.
+
+**Three-panel CSS Grid layout:**
+
+```css
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;  /* sidebar + content */
+}
+.layout.panel-open {
+  grid-template-columns: 280px 1fr 460px;  /* + try panel */
+}
+```
+
+Adding `.panel-open` to the layout `div` in JavaScript is all it takes to animate the third column in. CSS handles the transition.
+
+**`$ref` resolution** — OpenAPI schemas use JSON references like `{"$ref": "#/components/schemas/SubscriptionRequestDto"}` to avoid repeating large objects. The `deref()` function walks the spec to resolve them:
+
+```js
+function deref(schemaOrRef) {
+  if (!schemaOrRef || !schemaOrRef.$ref) return schemaOrRef;
+  const parts = schemaOrRef.$ref.replace('#/', '').split('/');
+  let node = spec;
+  for (const p of parts) node = node?.[p];
+  return node ? deref(node) : null;  // recursive for nested refs
+}
+```
+
+**Auth via `sessionStorage`** — The Authorize modal saves header values to `sessionStorage` under the key `itc_auth`. They survive page reloads (unlike variables that reset) but not new tabs or browser restart (unlike `localStorage`). The try-it executor reads them and injects them as HTTP headers:
+
+```js
+for (const name of Object.keys(schemes)) {
+  if (authValues[name]) headers[schemes[name].paramName || name] = authValues[name];
+}
+```
+
+**marked.js for Markdown** — The API description in `OpenApiConfig.java` is written as Markdown (with `##` headers, tables, bold text). Loading `marked.js` from CDN and calling `marked.parse(description)` converts it to HTML that the browser renders correctly — no Markdown parser to write.
+
+**Example generation** — `buildExampleFromSchema(schema)` recursively walks a resolved schema and produces a JSON object with sensible defaults per type (`boolean` → `false`, `integer` → `0`, `string` → `""`, `enum` → first value). This pre-fills the Try It textarea so users don't start from a blank object.
+
+### Why keep both Swagger UI and the custom portal?
+
+- Swagger UI (`/docs`) is battle-tested, handles complex edge cases (file uploads, OAuth flows, discriminators), and requires no maintenance.
+- The custom portal (`/`) can be styled to match the product brand, hides distracting Swagger chrome, and gives you full control over layout and UX.
+- The OpenAPI spec (`/v3/api-docs`) is the shared source of truth — both portals read from the same JSON, so they never diverge.
 
 ---
 

@@ -2,7 +2,7 @@ package com.itc.direct_debit_sandbox.preauthorization;
 
 import com.itc.direct_debit_sandbox.callbacks.CallbackService;
 import com.itc.direct_debit_sandbox.preauthorization.dto.*;
-import com.itc.direct_debit_sandbox.provision.MerchantType;
+import com.itc.direct_debit_sandbox.provision.ProductType;
 import com.itc.direct_debit_sandbox.store.PreAuthRecord;
 import com.itc.direct_debit_sandbox.store.ProvisionRecord;
 import com.itc.direct_debit_sandbox.store.Store;
@@ -38,13 +38,13 @@ public class PreAuthService {
 
     private ApiResponseDto<?> checkPreAuthMerchantType(String merchantId, String productId) {
         ProvisionRecord provision = store.getProvision(merchantId, productId);
-        if (provision == null || provision.getMerchantType() == null) {
+        if (provision == null || provision.getProductType() == null) {
             return ApiResponseDto.builder()
                     .responseCode("100")
                     .responseMessage("Merchant type not configured. Provision with merchantType=PREAUTHORIZED_ONLY to use preauthorization endpoints")
                     .build();
         }
-        if (provision.getMerchantType() != MerchantType.PREAUTHORIZED_ONLY) {
+        if (provision.getProductType() != ProductType.PREAUTHORIZED_ONLY) {
             return ApiResponseDto.builder()
                     .responseCode("100")
                     .responseMessage("This operation is only available to PREAUTHORIZED_ONLY merchants")

@@ -1,21 +1,27 @@
 package com.itc.direct_debit_sandbox.subscriptions;
 
 import com.itc.direct_debit_sandbox.callbacks.CallbackService;
+import com.itc.direct_debit_sandbox.store.ConfigurationItem;
 import com.itc.direct_debit_sandbox.store.InMemoryStore;
+import com.itc.direct_debit_sandbox.store.ProvisionRecord;
 import com.itc.direct_debit_sandbox.store.SubscriptionRecord;
 import com.itc.direct_debit_sandbox.subscriptions.dto.CancelRequest;
 import com.itc.direct_debit_sandbox.subscriptions.dto.CustomerSubRequest;
 import com.itc.direct_debit_sandbox.subscriptions.dto.SubscriptionRequestDto;
 import com.itc.direct_debit_sandbox.subscriptions.dto.UpdateRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class SubscriptionService {
 
     private final InMemoryStore store;
@@ -73,6 +79,50 @@ public class SubscriptionService {
         return null;
     }
 
+    // ─── CONFIG HELPERS ──────────────────────────────────────────────────────
+    // Returns the requested config list merged with any missing product defaults
+    // from the ProvisionRecord. Items already present in the request are never overwritten.
+
+    private List<ConfigurationItem> resolveEffectiveConfig(
+            List<ConfigurationItem> requested, ProvisionRecord provision) {
+
+        List<ConfigurationItem> resolved = requested != null ? new ArrayList<>(requested) : new ArrayList<>();
+        Set<String> present = resolved.stream().map(ConfigurationItem::getName).collect(Collectors.toSet());
+
+        if (provision != null) {
+            if (!present.contains("retryAttempts") && provision.getRetryAttempts() != null) {
+                ConfigurationItem item = new ConfigurationItem();
+                item.setName("retryAttempts");
+                item.setValue(provision.getRetryAttempts().toString());
+                resolved.add(item);
+            }
+            if (!present.contains("skipFactor") && provision.getSkipFactor() != null) {
+                ConfigurationItem item = new ConfigurationItem();
+                item.setName("skipFactor");
+                item.setValue(provision.getSkipFactor().toString());
+                resolved.add(item);
+            }
+            if (!present.contains("daysToDebitDayNotice") && provision.getDaysToDebitDayNotice() != null) {
+                ConfigurationItem item = new ConfigurationItem();
+                item.setName("daysToDebitDayNotice");
+                item.setValue(provision.getDaysToDebitDayNotice());
+                resolved.add(item);
+            }
+        }
+        return resolved;
+    }
+
+    private OptionalInt getConfigIntValue(List<ConfigurationItem> config, String name) {
+        if (config == null) return OptionalInt.empty();
+        return config.stream()
+                .filter(c -> name.equals(c.getName()))
+                .mapToInt(c -> {
+                    try { return Integer.parseInt(c.getValue()); }
+                    catch (NumberFormatException e) { return -1; }
+                })
+                .findFirst();
+    }
+
     // ─── SUBSCRIBE ───────────────────────────────────────────────────────────
 
     public Map<String, Object> subscribe(
@@ -111,9 +161,39 @@ public class SubscriptionService {
             }
         }
 
+        if(country.equals("GH") && Channel.VODAFONE == req.getChannel() ) {
+            req.setChannel(Channel.TELECEL);
+            log.info("Channel changed from VODAFONE to TELECEL");
+        }
+            
+        
+
         // Guard: debitDay must be valid for the given frequencyType
         Map<String, Object> debitDayError = validateDebitDay(req.getFrequencyType(), req.getDebitDay());
         if (debitDayError != null) return debitDayError;
+
+        // Guard: DAILY subscriptions cannot have notificationStatus enabled
+        if (FrequencyType.DAILY == req.getFrequencyType() && Boolean.TRUE.equals(req.getNotificationStatus())) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("responseCode", "100");
+            error.put("responseMessage", "notificationStatus cannot be enabled for DAILY subscriptions");
+            return error;
+        }
+
+        // Resolve effective configuration: merge request config with product defaults
+        ProvisionRecord provision = store.getProvision(req.getMerchantId(), req.getProductId());
+        List<ConfigurationItem> effectiveConfig = resolveEffectiveConfig(req.getConfiguration(), provision);
+
+        // Guard: DAILY subscriptions cannot have retryAttempts > 1
+        if (FrequencyType.DAILY == req.getFrequencyType()) {
+            OptionalInt retryAttempts = getConfigIntValue(effectiveConfig, "retryAttempts");
+            if (retryAttempts.isPresent() && retryAttempts.getAsInt() > 1) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("responseCode", "100");
+                error.put("responseMessage", "retryAttempts cannot exceed 1 for DAILY subscriptions");
+                return error;
+            }
+        }
 
         // Generate unique IDs for this subscription
         String mandateId = UUID.randomUUID().toString();
@@ -139,7 +219,7 @@ public class SubscriptionService {
                 // Boolean fields: treat null as false
                 .triggerDebitStatus(Boolean.TRUE.equals(req.getTriggerDebitStatus()))
                 .notificationStatus(Boolean.TRUE.equals(req.getNotificationStatus()))
-                .configuration(req.getConfiguration())
+                .configuration(effectiveConfig)
                 .createdAt(Instant.now().toString())
                 .build();
 

@@ -1,15 +1,17 @@
 package com.itc.direct_debit_sandbox.preauthorization.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
-/** Body for POST /mandate/check-status */
 @Data
 public class CheckMandateStatusRequest {
 
     @NotBlank
-    private String reference;   // the referenceNo used when creating the preauth
+    @Schema(example = "REF-PREAUTH-001", description = "The referenceNo used when creating the preauth")
+    private String reference;
 
     @NotBlank
+    @Schema(example = "ff469300-0a9f-43cc-92ca-25e0b75dfe18")
     private String productId;
 }
