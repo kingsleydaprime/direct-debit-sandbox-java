@@ -8,7 +8,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -158,10 +157,9 @@ public class LifecycleController {
     }
 
     private ResponseEntity<?> buildUnauthorizedResponse() {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(ApiResponseDto.builder()
-                        .responseCode("401")
-                        .responseMessage("Unauthorized. Required headers missing.")
-                        .build());
+        return ResponseEntity.ok(ApiResponseDto.builder()
+                .responseCode("107")
+                .responseMessage("Invalid credentials: missing or blank required headers")
+                .build());
     }
 }

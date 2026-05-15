@@ -32,6 +32,8 @@ public class ProvisionService {
                 .merchantId(req.getMerchantId())
                 .productId(req.getProductId())
                 .callbackUrl(req.getCallbackUrl())
+                .apiKey(apiKey)
+                .transflowId(transflowId)
                 // If caller didn't send a config field, keep the previous value (or null for new registrations)
                 .productType(req.getProductType() != null ? req.getProductType()
                         : (existing != null ? existing.getProductType() : null))

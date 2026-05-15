@@ -22,7 +22,7 @@ public class UpdateRequest {
     @Schema(example = "ff469300-0a9f-43cc-92ca-25e0b75dfe18")
     private String productId;
 
-    @Schema(example = "0241234001")
+    @Schema(example = "233241234001")
     private String debitAccount;
 
     @Schema(example = "75.00")
@@ -58,8 +58,10 @@ public class UpdateRequest {
     @Schema(example = "false")
     private Boolean notificationStatus;
 
-    @Schema(example = "0241234001")
+    @Schema(example = "233241234001")
     private String debitNotificationAccount;
 
+    @Schema(description = "Optional per-subscription overrides for product defaults",
+            example = "[{\"name\":\"retryAttempts\",\"value\":\"3\"},{\"name\":\"skipFactor\",\"value\":\"2\"},{\"name\":\"daysToDebitDayNotice\",\"value\":\"1,3\"}]")
     private List<ConfigurationItem> configuration;
 }

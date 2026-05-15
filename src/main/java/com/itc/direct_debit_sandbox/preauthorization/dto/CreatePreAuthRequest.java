@@ -10,7 +10,7 @@ import lombok.Data;
 public class CreatePreAuthRequest {
 
     @NotBlank
-    @Schema(example = "0241234001", description = "Last 3 digits control the simulated outcome — 001=success, 004=pre-approval pending")
+    @Schema(example = "233241234001", description = "Last 3 digits control the simulated outcome — 001=success, 004=pre-approval pending")
     private String debitAccount;
 
     @NotBlank
@@ -41,6 +41,6 @@ public class CreatePreAuthRequest {
     @Schema(example = "2027-06-01", description = "Must be after startDate")
     private String endDate;
 
-    @Schema(example = "https://webhook.site/your-id", description = "Optional — falls back to the provisioned callback URL")
+    @Schema(example = "https://webhook.site/05b66f52-ae04-4130-a287-db6737198eb9", description = "Optional — falls back to the provisioned callback URL")
     private String callbackUrl;
 }

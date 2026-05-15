@@ -18,7 +18,7 @@ public class CancelPreAuthRequest {
     private String productId;
 
     @NotBlank
-    @Schema(example = "0241234001", description = "Must match the account used when creating the preauth")
+    @Schema(example = "233241234001", description = "Must match the account used when creating the preauth")
     private String debitAccount;
 
     @NotNull

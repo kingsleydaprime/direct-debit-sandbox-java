@@ -68,7 +68,7 @@ public class OpenApiConfig {
                                 ## Scenario cheat sheet
 
                                 The **last 3 digits of `debitAccount`** control the simulated bank outcome.
-                                Use any prefix you like (e.g. `0241234001`).
+                                Use any prefix you like (e.g. `233241234001`).
 
                                 ### Transient outcomes (retry-aware)
                                 | Suffix | Initial attempt | After 1st retry | After 2nd retry |

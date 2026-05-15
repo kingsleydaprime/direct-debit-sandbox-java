@@ -10,6 +10,8 @@ public class ProvisionRecord {
     private String merchantId;
     private String productId;
     private String callbackUrl;
+    private String transflowId;
+    private String apiKey;
     // Determines which API operations this product is permitted to use.
     // Null means the type was never set (treated as unconfigured in the sandbox).
     private ProductType productType;

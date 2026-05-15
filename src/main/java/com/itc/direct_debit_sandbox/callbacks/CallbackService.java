@@ -60,7 +60,9 @@ public class CallbackService {
                 .country(subscription.getCountry())
                 .build();
 
-        String url = resolveCallbackUrl(subscription.getMerchantId(), subscription.getProductId(), subscription.getCallbackUrl());
+        ProvisionRecord provision = store.getProvision(subscription.getMerchantId(), subscription.getProductId());
+
+        String url = resolveCallbackUrl(subscription.getMerchantId(), subscription.getProductId(), provision.getCallbackUrl());
         sendCallback(url, payload);
         log.info("Preapproval callback fired for mandateId: {}", subscription.getId());
     }
@@ -114,7 +116,9 @@ public class CallbackService {
                 .maxRetries(record.isTriggerDebitStatus() ? maxRetries : 0)
                 .build());
 
-        String url = resolveCallbackUrl(record.getMerchantId(), record.getProductId(), record.getCallbackUrl());
+        ProvisionRecord provision = store.getProvision(record.getMerchantId(), record.getProductId());
+
+        String url = resolveCallbackUrl(record.getMerchantId(), record.getProductId(), provision.getCallbackUrl());
         sendCallback(url, payload);
         log.info("Transaction callback fired for mandateId: {}, attempt: {}, responseCode: {}",
                 record.getId(), attemptNumber, responseCode);

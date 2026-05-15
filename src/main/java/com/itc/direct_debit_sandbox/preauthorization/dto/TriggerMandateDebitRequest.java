@@ -28,7 +28,7 @@ public class TriggerMandateDebitRequest {
     private String referenceNo;
 
     @NotBlank
-    @Schema(example = "0241234001")
+    @Schema(example = "233241234001")
     private String debitAccount;
 
     @NotBlank

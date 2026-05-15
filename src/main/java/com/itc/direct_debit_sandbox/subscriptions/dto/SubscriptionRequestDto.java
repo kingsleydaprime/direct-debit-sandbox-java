@@ -20,7 +20,7 @@ public class SubscriptionRequestDto {
     private String productId;
 
     @NotBlank
-    @Schema(example = "0241234001", description = "Last 3 digits control the simulated outcome — 001=success, 002=fail+retry, 003=fail+fail+retry")
+    @Schema(example = "233241234001", description = "Last 3 digits control the simulated outcome — 001=success, 002=fail+retry, 003=fail+fail+retry")
     private String debitAccount;
 
     @NotBlank
@@ -62,7 +62,9 @@ public class SubscriptionRequestDto {
     private Boolean triggerDebitStatus;
     @Schema(example = "false")
     private Boolean notificationStatus;
-    @Schema(example = "0241234001")
+    @Schema(example = "233241234001")
     private String debitNotificationAccount;
+    @Schema(description = "Optional per-subscription overrides for product defaults",
+            example = "[{\"name\":\"retryAttempts\",\"value\":\"3\"},{\"name\":\"skipFactor\",\"value\":\"2\"},{\"name\":\"daysToDebitDayNotice\",\"value\":\"1,3\"}]")
     private List<ConfigurationItem> configuration;
 }

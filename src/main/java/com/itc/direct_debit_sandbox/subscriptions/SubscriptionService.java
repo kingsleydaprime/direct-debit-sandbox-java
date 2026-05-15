@@ -1,6 +1,8 @@
 package com.itc.direct_debit_sandbox.subscriptions;
 
 import com.itc.direct_debit_sandbox.callbacks.CallbackService;
+import com.itc.direct_debit_sandbox.common.CountryDialingCode;
+import com.itc.direct_debit_sandbox.provision.ProductType;
 import com.itc.direct_debit_sandbox.store.ConfigurationItem;
 import com.itc.direct_debit_sandbox.store.InMemoryStore;
 import com.itc.direct_debit_sandbox.store.ProvisionRecord;
@@ -79,6 +81,39 @@ public class SubscriptionService {
         return null;
     }
 
+    // ─── PRODUCT TYPE VALIDATION ─────────────────────────────────────────────
+
+    private Map<String, Object> checkSubscriptionProductType(String merchantId, String productId) {
+        ProvisionRecord provision = store.getProvision(merchantId, productId);
+        if (provision == null || provision.getProductType() == null) {
+            Map<String, Object> err = new HashMap<>();
+            err.put("responseCode",    "100");
+            err.put("responseMessage", "Product type not configured. Provision with productType SUBSCRIPTIONS_ONLY or HYBRID to use subscription endpoints");
+            return err;
+        }
+        if (provision.getProductType() == ProductType.PREAUTHORIZED_ONLY) {
+            Map<String, Object> err = new HashMap<>();
+            err.put("responseCode",    "100");
+            err.put("responseMessage", "PREAUTHORIZED_ONLY products cannot use subscription endpoints. Set productType to SUBSCRIPTIONS_ONLY or HYBRID");
+            return err;
+        }
+        return null;
+    }
+
+    // ─── PHONE / COUNTRY VALIDATION ─────────────────────────────────────────
+
+    private Map<String, Object> validatePhoneCountry(String country, String phone, String fieldName) {
+        return CountryDialingCode.fromIso(country)
+                .flatMap(c -> c.validatePhone(fieldName, phone))
+                .map(msg -> {
+                    Map<String, Object> err = new HashMap<>();
+                    err.put("responseCode",    "100");
+                    err.put("responseMessage", msg);
+                    return err;
+                })
+                .orElse(null);
+    }
+
     // ─── CONFIG HELPERS ──────────────────────────────────────────────────────
     // Returns the requested config list merged with any missing product defaults
     // from the ProvisionRecord. Items already present in the request are never overwritten.
@@ -134,6 +169,18 @@ public class SubscriptionService {
         Map<String, Object> authError = validateHeaders(transflowId, apiKey, country);
         if (authError != null) return authError;
 
+        // Guard: product type must allow subscriptions
+        Map<String, Object> typeError = checkSubscriptionProductType(req.getMerchantId(), req.getProductId());
+        if (typeError != null) return typeError;
+
+        // Guard: debitAccount and debitNotificationAccount must match the x-country dialing prefix
+        Map<String, Object> phoneError = validatePhoneCountry(country, req.getDebitAccount(), "debitAccount");
+        if (phoneError != null) return phoneError;
+        if (req.getDebitNotificationAccount() != null && !req.getDebitNotificationAccount().isBlank()) {
+            phoneError = validatePhoneCountry(country, req.getDebitNotificationAccount(), "debitNotificationAccount");
+            if (phoneError != null) return phoneError;
+        }
+
         // Guard against duplicate references — same referenceNo already exists
         if (req.getReferenceNo() != null && store.getSubscriptionByReference(req.getReferenceNo()) != null) {
             Map<String, Object> duplicate = new HashMap<>();
@@ -165,8 +212,8 @@ public class SubscriptionService {
             req.setChannel(Channel.TELECEL);
             log.info("Channel changed from VODAFONE to TELECEL");
         }
-            
-        
+
+
 
         // Guard: debitDay must be valid for the given frequencyType
         Map<String, Object> debitDayError = validateDebitDay(req.getFrequencyType(), req.getDebitDay());
@@ -272,7 +319,7 @@ public class SubscriptionService {
 
         store.updateSubscription(req.getSubscriptionId(), existing);
 
-        callbackService.fireCallbacks(existing);
+        // callbackService.fireCallbacks(existing);
 
         Map<String, Object> response = new HashMap<>();
         response.put("responseCode",    "03");
@@ -323,10 +370,35 @@ public class SubscriptionService {
             return response;
         }
 
+        List<Map<String, Object>> sanitizedResults = results.stream()
+                .map(this::toSubscriptionResponse)
+                .collect(Collectors.toList());
+
         response.put("responseCode",    "01");
         response.put("responseMessage", "operation successful");
-        response.put("data",            results);
+        response.put("data",            sanitizedResults);
         return response;
+    }
+
+    private Map<String, Object> toSubscriptionResponse(SubscriptionRecord record) {
+        Map<String, Object> subscription = new LinkedHashMap<>();
+        subscription.put("merchantId",               record.getMerchantId());
+        subscription.put("productId",                record.getProductId());
+        subscription.put("subscriptionId",           record.getId());
+        subscription.put("debitAccount",             record.getDebitAccount());
+        subscription.put("country",                  record.getCountry());
+        subscription.put("debitAmount",              record.getDebitAmount());
+        subscription.put("frequencyType",            record.getFrequencyType());
+        subscription.put("startDate",                record.getStartDate());
+        subscription.put("endDate",                  record.getEndDate());
+        subscription.put("debitDay",                 record.getDebitDay());
+        subscription.put("referenceNo",              record.getReferenceNo());
+        subscription.put("channel",                  record.getChannel());
+        subscription.put("debitTime",                record.getDebitTime());
+        subscription.put("debitNotificationAccount", record.getDebitNotificationAccount());
+        subscription.put("currency",                 record.getCurrency());
+        subscription.put("created",                  record.getCreatedAt());
+        return subscription;
     }
 
     // Delegates to the correctly-named method above.

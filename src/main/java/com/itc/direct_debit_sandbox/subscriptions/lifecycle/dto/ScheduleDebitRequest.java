@@ -16,7 +16,7 @@ public class ScheduleDebitRequest {
     private String debitDate;
     @Schema(example = "08:00")
     private String debitTime;
-    @Schema(example = "0241234001")
+    @Schema(example = "233241234001")
     private String debitNotificationAccount;
     @Schema(example = "REF-SCHED-001")
     private String referenceNo;
@@ -24,10 +24,10 @@ public class ScheduleDebitRequest {
     private Channel channel;
     @Schema(example = "GHS")
     private String currency;
-    @Schema(example = "0241234001")
+    @Schema(example = "233241234001")
     private String debitAccount;
     @Schema(example = "50.00")
     private String debitAmount;
-    @Schema(example = "https://webhook.site/your-id")
+    @Schema(example = "https://webhook.site/05b66f52-ae04-4130-a287-db6737198eb9")
     private String callbackUrl;
 }

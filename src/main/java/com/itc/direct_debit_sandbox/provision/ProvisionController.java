@@ -9,9 +9,10 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
 
 @Tag(name = "Provision", description = "Register merchant/product configuration — callback URL, product type, and retry defaults")
 @RestController
@@ -42,20 +43,22 @@ public class ProvisionController {
             @Parameter(hidden = true) @RequestHeader(value = "x-key",         required = false) String apiKey,
             @Valid @RequestBody ProvisionRequestDto req) {
 
-        if (isUnauthorized(transflowId, apiKey)) return buildUnauthorizedResponse();
+        if (!isValidUuid(transflowId) || !isValidUuid(apiKey)) {
+            return ResponseEntity.ok(ApiResponseDto.builder()
+                    .responseCode("107")
+                    .responseMessage("Invalid credentials: x-transflowId and x-key must be valid UUIDs")
+                    .build());
+        }
         return ResponseEntity.ok(provisionService.provision(transflowId, apiKey, req));
     }
 
-    private boolean isUnauthorized(String transflowId, String key) {
-        return transflowId == null || transflowId.isBlank() ||
-               key        == null || key.isBlank();
-    }
-
-    private ResponseEntity<?> buildUnauthorizedResponse() {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(ApiResponseDto.builder()
-                        .responseCode("401")
-                        .responseMessage("Unauthorized. Required headers missing: x-transflowId, x-key")
-                        .build());
+    private boolean isValidUuid(String value) {
+        if (value == null || value.isBlank()) return false;
+        try {
+            UUID.fromString(value);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 }

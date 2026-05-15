@@ -1,6 +1,7 @@
 package com.itc.direct_debit_sandbox.preauthorization;
 
 import com.itc.direct_debit_sandbox.callbacks.CallbackService;
+import com.itc.direct_debit_sandbox.common.CountryDialingCode;
 import com.itc.direct_debit_sandbox.preauthorization.dto.*;
 import com.itc.direct_debit_sandbox.provision.ProductType;
 import com.itc.direct_debit_sandbox.store.PreAuthRecord;
@@ -36,18 +37,40 @@ public class PreAuthService {
                country     == null || country.isBlank();
     }
 
+    private static final String[] SANDBOX_NAMES = {
+        "Ama Owusu", "Kwame Mensah", "Abena Asante", "Kofi Boateng",
+        "Akua Darko", "Yaw Adjei", "Efua Osei", "Kwesi Acheampong",
+        "Adwoa Frimpong", "Kojo Antwi"
+    };
+
+    private String generateClientName(String debitAccount) {
+        if (debitAccount == null || debitAccount.isBlank()) return "Sandbox User";
+        int idx = Math.abs(debitAccount.hashCode()) % SANDBOX_NAMES.length;
+        return SANDBOX_NAMES[idx];
+    }
+
+    private ApiResponseDto<?> validatePhoneCountry(String country, String phone, String fieldName) {
+        return CountryDialingCode.fromIso(country)
+                .flatMap(c -> c.validatePhone(fieldName, phone))
+                .map(msg -> (ApiResponseDto<?>) ApiResponseDto.builder()
+                        .responseCode("100")
+                        .responseMessage(msg)
+                        .build())
+                .orElse(null);
+    }
+
     private ApiResponseDto<?> checkPreAuthMerchantType(String merchantId, String productId) {
         ProvisionRecord provision = store.getProvision(merchantId, productId);
         if (provision == null || provision.getProductType() == null) {
             return ApiResponseDto.builder()
                     .responseCode("100")
-                    .responseMessage("Merchant type not configured. Provision with merchantType=PREAUTHORIZED_ONLY to use preauthorization endpoints")
+                    .responseMessage("Product type not configured. Provision with productType PREAUTHORIZED_ONLY or HYBRID to use preauthorization endpoints")
                     .build();
         }
-        if (provision.getProductType() != ProductType.PREAUTHORIZED_ONLY) {
+        if (provision.getProductType() == ProductType.SUBSCRIPTIONS_ONLY) {
             return ApiResponseDto.builder()
                     .responseCode("100")
-                    .responseMessage("This operation is only available to PREAUTHORIZED_ONLY merchants")
+                    .responseMessage("SUBSCRIPTIONS_ONLY products cannot use preauthorization endpoints. Set productType to PREAUTHORIZED_ONLY or HYBRID")
                     .build();
         }
         return null;
@@ -69,6 +92,9 @@ public class PreAuthService {
                                            CreatePreAuthRequest req) {
 
         if (headersInvalid(transflowId, apiKey, country)) return unauthorizedResponse();
+
+        ApiResponseDto<?> phoneError = validatePhoneCountry(country, req.getDebitAccount(), "debitAccount");
+        if (phoneError != null) return phoneError;
 
         ApiResponseDto<?> typeError = checkPreAuthMerchantType(req.getMerchantId(), req.getProductId());
         if (typeError != null) return typeError;
@@ -107,6 +133,7 @@ public class PreAuthService {
                 .mandateId(mandateId)
                 .merchantId(req.getMerchantId())
                 .productId(req.getProductId())
+                .clientName(generateClientName(req.getDebitAccount()))
                 .debitAccount(req.getDebitAccount())
                 .countryId(req.getCountry())
                 .channel(req.getChannel().name())
@@ -237,8 +264,28 @@ public class PreAuthService {
         return ApiResponseDto.builder()
                 .responseCode("01")
                 .responseMessage("operation successful")
-                .data(preAuth)
+                .data(toRetrieveResponse(preAuth))
                 .build();
+    }
+
+    private java.util.Map<String, Object> toRetrieveResponse(PreAuthRecord r) {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("preApprovalId", r.getPreApprovalId());
+        m.put("productId",     r.getProductId());
+        m.put("clientName",    r.getClientName());
+        m.put("mandateId",     r.getMandateId());
+        m.put("debitAccount",  r.getDebitAccount());
+        m.put("countryId",     r.getCountryId());
+        m.put("merchantId",    r.getMerchantId());
+        m.put("mandateType",   "authorization");
+        m.put("status",        r.getStatus() != null ? r.getStatus().toLowerCase() : null);
+        m.put("debitSource",   r.getChannel());
+        m.put("refNo",         r.getReferenceNo());
+        m.put("startDate",     r.getStartDate());
+        m.put("endDate",       r.getEndDate());
+        m.put("created",       r.getCreatedAt());
+        m.put("updated",       r.getUpdatedAt());
+        return m;
     }
 
     // ─── CANCEL PREAUTH ──────────────────────────────────────────────────────

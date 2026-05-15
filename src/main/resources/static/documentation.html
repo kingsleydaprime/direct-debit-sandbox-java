@@ -48,7 +48,8 @@
 <body>
 
   <header class="topbar">
-    <button class="btn-sidebar-toggle" style="visibility:hidden" aria-hidden="true">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button class="btn-sidebar-toggle" style="visibility:hidden" aria-hidden="true">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
         <rect x="1" y="3"    width="14" height="1.5" rx="1"/>
         <rect x="1" y="7.25" width="14" height="1.5" rx="1"/>
@@ -57,9 +58,12 @@
     </button>
     <div class="topbar-brand">
       <img fetchpriority="high"
-           src="https://www.itconsortiumgh.com/wp-content/uploads/2020/07/ITC-Logo-01-light.png"
-           alt="ITC" loading="lazy" style="width:100px;height:auto;">
-      <span class="topbar-badge">Sandbox</span>
+        src="https://www.itconsortiumgh.com/wp-content/uploads/2020/07/ITC-Logo-01-light.png"
+        alt="ITC"
+        loading="lazy"
+        style="width:100px;height:auto;"
+      />
+    </div>
     </div>
     <nav class="topbar-nav">
       <a class="topbar-link topbar-link-active" href="/documentation">Documentation</a>

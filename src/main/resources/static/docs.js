@@ -327,7 +327,12 @@ function buildExampleFromSchema(schema, depth = 0) {
   for (const [name, rawProp] of Object.entries(props)) {
     const p = deref(rawProp);
     if (!p) continue;
-    if (p.example !== undefined) { out[name] = p.example; continue; }
+    if (p.example !== undefined) {
+      let v = p.example;
+      if (typeof v === 'string') { try { v = JSON.parse(v); } catch {} }
+      out[name] = v;
+      continue;
+    }
     if (p.enum?.length)           { out[name] = p.enum[0]; continue; }
     switch (p.type) {
       case 'boolean': out[name] = false; break;

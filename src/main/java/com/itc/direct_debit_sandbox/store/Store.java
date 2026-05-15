@@ -25,6 +25,7 @@ public interface Store {
     // Provision methods
     void saveProvision(String merchantId, String productId, ProvisionRecord record);
     ProvisionRecord getProvision(String merchantId, String productId);
+    ProvisionRecord getProvisionByTransflowId(String transflowId);
 
     // PreAuthorization methods
     void createPreAuth(String preApprovalId, PreAuthRecord record);

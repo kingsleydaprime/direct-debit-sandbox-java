@@ -30,6 +30,7 @@ public class PreAuthRecord {
     // ─── IDENTITY ───────────────────────────────────────────────────────────
     private String merchantId;
     private String productId;
+    private String clientName;
     private String debitAccount;
     private String countryId;       // stored as countryId to match response schema
     private String channel;         // e.g. "MTN" — also returned as debitSource
