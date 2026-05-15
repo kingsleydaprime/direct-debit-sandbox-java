@@ -127,6 +127,7 @@ public class PreAuthService {
         String preApprovalId = UUID.randomUUID().toString();
         String mandateId     = UUID.randomUUID().toString();
         String now           = Instant.now().toString();
+        ProvisionRecord provision = store.getProvision(req.getMerchantId(), req.getProductId());
 
         PreAuthRecord record = PreAuthRecord.builder()
                 .preApprovalId(preApprovalId)
@@ -141,7 +142,7 @@ public class PreAuthService {
                 .startDate(req.getStartDate())
                 .endDate(req.getEndDate())
                 .status("ACTIVE")
-                .callbackUrl(req.getCallbackUrl())
+                .callbackUrl(provision != null ? provision.getCallbackUrl() : null)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();

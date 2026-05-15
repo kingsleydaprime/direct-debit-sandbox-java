@@ -2955,4 +2955,358 @@ Use `forward:` here. You want `/documentation` to stay in the address bar (clean
 
 ---
 
+## 83. HandlerInterceptor — a request gate before the controller
+
+A `HandlerInterceptor` sits between the servlet and your controller. It runs `preHandle()` before any controller method executes. If `preHandle()` returns `false`, the request stops there — the controller is never called.
+
+```java
+@Component
+@RequiredArgsConstructor
+public class AuthGuardInterceptor implements HandlerInterceptor {
+
+    private final Store store;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Override
+    public boolean preHandle(HttpServletRequest request,
+                             HttpServletResponse response,
+                             Object handler) throws Exception {
+        String transflowId = request.getHeader("x-transflowId");
+        // ... validate ...
+        if (invalid) {
+            response.setStatus(HttpServletResponse.SC_OK);
+            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            objectMapper.writeValue(response.getWriter(), Map.of("responseCode", "107", ...));
+            return false;  // stops the chain
+        }
+        return true;  // proceeds to the controller
+    }
+}
+```
+
+Register it in `WebMvcConfigurer`:
+
+```java
+@Override
+public void addInterceptors(InterceptorRegistry registry) {
+    registry.addInterceptor(authGuardInterceptor)
+            .addPathPatterns("/**")
+            .excludePathPatterns("/provision", "/docs/**", "/v3/api-docs", ...);
+}
+```
+
+**Key points:**
+- `addPathPatterns("/**")` with `.excludePathPatterns(...)` is the standard way to apply an interceptor everywhere except public routes
+- The pattern `/**` does NOT match `/v3/api-docs` (no trailing slash) — you must add that path explicitly as well as `/v3/api-docs/**`
+- Writing directly to `response.getWriter()` bypasses the controller entirely — you're responsible for setting `Content-Type` and status yourself
+- `@RequiredArgsConstructor` only generates constructor parameters for `final` fields **without initialisers** — `private final ObjectMapper m = new ObjectMapper()` is excluded from the constructor, so `ObjectMapper` doesn't need to be a Spring bean
+
+---
+
+## 84. UUID validation with `UUID.fromString()`
+
+The simplest way to validate that a string is a well-formed UUID in Java:
+
+```java
+private boolean isValidUuid(String value) {
+    if (value == null || value.isBlank()) return false;
+    try {
+        UUID.fromString(value);
+        return true;
+    } catch (IllegalArgumentException e) {
+        return false;
+    }
+}
+```
+
+`UUID.fromString()` throws `IllegalArgumentException` if the string doesn't match the canonical UUID format (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`). You can also use `@Pattern` on a DTO field if you want Jakarta Validation to handle it:
+
+```java
+@Pattern(
+  regexp = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+  message = "merchantId must be a valid UUID"
+)
+private String merchantId;
+```
+
+`@Pattern` fires during `@Valid` processing (before the method body runs), while `UUID.fromString()` in a `try/catch` lets you control the exact error response yourself.
+
+---
+
+## 85. Enum as a utility — `CountryDialingCode`
+
+Enums in Java can hold fields and methods, not just names. This makes them ideal for lookup tables:
+
+```java
+public enum CountryDialingCode {
+    GH("GH", "233"),
+    RW("RW", "250"),
+    UG("UG", "256");
+
+    private final String isoCode;
+    private final String prefix;
+
+    CountryDialingCode(String isoCode, String prefix) {
+        this.isoCode = isoCode;
+        this.prefix  = prefix;
+    }
+
+    public static Optional<CountryDialingCode> fromIso(String iso) {
+        return Arrays.stream(values())
+                .filter(c -> c.isoCode.equalsIgnoreCase(iso.trim()))
+                .findFirst();
+    }
+
+    public Optional<String> validatePhone(String fieldName, String phone) {
+        if (!phone.startsWith(prefix))
+            return Optional.of(fieldName + " must start with " + prefix);
+        return Optional.empty();
+    }
+}
+```
+
+Usage in a service:
+
+```java
+CountryDialingCode.fromIso(country)          // Optional<CountryDialingCode>
+    .flatMap(c -> c.validatePhone("debitAccount", phone))  // Optional<String> error
+    .map(msg -> buildError("100", msg))      // Optional<Map> error response
+    .orElse(null);                           // null means valid
+```
+
+This chains three Optional operations: find the country, validate the phone, build an error — all without null checks or if-statements.
+
+---
+
+## 86. One-to-many secondary indexes with `computeIfAbsent`
+
+The original `accountProductIndex` was `Map<String, String>` — one subscription per account+product. When you need multiple subscriptions per account you change it to `Map<String, Set<String>>`:
+
+```java
+// Before (one-to-one):
+private final Map<String, String> accountProductIndex = new ConcurrentHashMap<>();
+accountProductIndex.put(key, subscriptionId);  // overwrites the previous one
+
+// After (one-to-many):
+private final Map<String, Set<String>> accountProductIndex = new ConcurrentHashMap<>();
+accountProductIndex
+    .computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
+    .add(subscriptionId);
+```
+
+`computeIfAbsent(key, fn)` atomically: checks if the key exists; if not, calls `fn` to create the value and inserts it; then returns the (existing or new) value. `ConcurrentHashMap.newKeySet()` creates a thread-safe `Set` backed by a `ConcurrentHashMap`.
+
+Lookup returns all records:
+
+```java
+public List<SubscriptionRecord> getSubscriptionsByAccount(String debitAccount, String productId) {
+    Set<String> ids = accountProductIndex.get(debitAccount + ":" + productId);
+    if (ids == null || ids.isEmpty()) return Collections.emptyList();
+    return ids.stream()
+              .map(subscriptions::get)
+              .filter(Objects::nonNull)
+              .collect(Collectors.toList());
+}
+```
+
+Deletion removes only the cancelled ID, not the whole key:
+
+```java
+Set<String> ids = accountProductIndex.get(indexKey);
+if (ids != null) {
+    ids.remove(subscriptionId);
+    if (ids.isEmpty()) accountProductIndex.remove(indexKey);
+}
+```
+
+---
+
+## 87. Response mapping — don't return internal records directly
+
+Returning a `PreAuthRecord` directly from a `retrievePreAuthDetails` endpoint leaks internal field names (`createdAt`, `channel`, `referenceNo`) that differ from the API contract (`created`, `debitSource`, `refNo`). The fix is a dedicated mapping method:
+
+```java
+private Map<String, Object> toRetrieveResponse(PreAuthRecord r) {
+    Map<String, Object> m = new LinkedHashMap<>();
+    m.put("preApprovalId", r.getPreApprovalId());
+    m.put("debitSource",   r.getChannel());      // renamed
+    m.put("refNo",         r.getReferenceNo());  // renamed
+    m.put("mandateType",   "authorization");      // computed constant
+    m.put("status",        r.getStatus().toLowerCase()); // normalised
+    m.put("created",       r.getCreatedAt());    // renamed
+    m.put("updated",       r.getUpdatedAt());    // renamed
+    // callbackUrl intentionally omitted — internal only
+    return m;
+}
+```
+
+**Why `LinkedHashMap`?** A regular `HashMap` doesn't guarantee insertion order, so the JSON fields appear in a random order each call. `LinkedHashMap` preserves insertion order, giving you deterministic, readable JSON output that matches your API contract document.
+
+---
+
+## 88. Deterministic fake data from a hash
+
+In a sandbox you sometimes need to generate plausible-looking data (like a customer name) that doesn't come from the request, but should be *stable* — the same input always produces the same output. Use `hashCode()` modulo the pool size:
+
+```java
+private static final String[] SANDBOX_NAMES = {
+    "Ama Owusu", "Kwame Mensah", "Abena Asante", ...
+};
+
+private String generateClientName(String debitAccount) {
+    int idx = Math.abs(debitAccount.hashCode()) % SANDBOX_NAMES.length;
+    return SANDBOX_NAMES[idx];
+}
+```
+
+`Math.abs()` is needed because `hashCode()` can return a negative integer. The modulo (`%`) maps any integer into the range `[0, SANDBOX_NAMES.length)`. The same phone number will always resolve to the same name, which makes sandbox testing reproducible.
+
+---
+
+## 89. Product type access control
+
+When a system has multiple product types (`SUBSCRIPTIONS_ONLY`, `PREAUTHORIZED_ONLY`, `HYBRID`), endpoints should reject requests from the wrong type early — before touching the database:
+
+```java
+// In SubscriptionService:
+private Map<String, Object> checkSubscriptionProductType(String merchantId, String productId) {
+    ProvisionRecord provision = store.getProvision(merchantId, productId);
+    if (provision == null || provision.getProductType() == null) {
+        return error("Product type not configured...");
+    }
+    if (provision.getProductType() == ProductType.PREAUTHORIZED_ONLY) {
+        return error("PREAUTHORIZED_ONLY products cannot use subscription endpoints");
+    }
+    return null; // allowed
+}
+```
+
+The enforcement matrix:
+
+| `productType` | Subscription endpoints | Preauth endpoints |
+|---|---|---|
+| `SUBSCRIPTIONS_ONLY` | ✅ | ❌ |
+| `PREAUTHORIZED_ONLY` | ❌ | ✅ |
+| `HYBRID` | ✅ | ✅ |
+| `null` | ❌ | ❌ |
+
+A common mistake: checking `productType != PREAUTHORIZED_ONLY` as the preauth guard. This blocks `HYBRID` merchants. The correct check is `productType == SUBSCRIPTIONS_ONLY`.
+
+---
+
+## 90. Migrating HTTP 4xx errors to 200 + business code
+
+Real banking and fintech APIs typically return HTTP 200 for everything and communicate errors through a `responseCode` in the body. This avoids clients needing to handle two different error paths (HTTP status AND body).
+
+**Before:**
+```java
+return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+        .body(ApiResponseDto.builder()
+                .responseCode("401")
+                .responseMessage("Unauthorized...")
+                .build());
+```
+
+**After:**
+```java
+return ResponseEntity.ok(ApiResponseDto.builder()
+        .responseCode("107")
+        .responseMessage("Invalid credentials: missing or blank required headers")
+        .build());
+```
+
+Once you make this change, the `HttpStatus` import becomes unused — remove it to keep the file clean.
+
+The interceptor follows the same pattern: it writes directly to the `HttpServletResponse` with `response.setStatus(HttpServletResponse.SC_OK)` (which is `200`) rather than returning a non-2xx status.
+
+---
+
+## 91. Parsing JSON string examples from OpenAPI schema
+
+When you annotate a `List` field with `@Schema(example = "...")`, springdoc stores the example as a raw JSON string in the OpenAPI JSON:
+
+```json
+"configuration": {
+  "type": "array",
+  "example": "[{\"name\":\"retryAttempts\",\"value\":\"3\"}]"
+}
+```
+
+A custom docs UI that builds example payloads with `buildExampleFromSchema()` receives `p.example` as the string `"[{...}]"` — not as a parsed array. If you assign it as-is, the textarea shows a JSON-encoded string instead of an actual array.
+
+Fix: try to parse any string example as JSON before using it:
+
+```js
+if (p.example !== undefined) {
+  let v = p.example;
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch {} }
+  out[name] = v;
+  continue;
+}
+```
+
+The `try/catch` is intentionally silent — if the string isn't valid JSON (e.g. it's just a plain string example like `"GH"`), `JSON.parse` throws and `v` stays as the original string. Only actual JSON arrays and objects get promoted.
+
+---
+
+## 92. CSS: modal hidden by default, shown on demand
+
+A modal overlay is invisible by default and shown by JavaScript. The key is which element starts with the `hidden` class:
+
+```html
+<!-- Wrong — overlay visible immediately on page load -->
+<div class="overlay" id="overlay">
+
+<!-- Correct — overlay starts hidden -->
+<div class="overlay hidden" id="overlay">
+```
+
+```css
+.overlay        { display: flex; }   /* shown state */
+.overlay.hidden { display: none; }   /* hidden state */
+```
+
+JavaScript toggles between the two states:
+
+```js
+function openModal()  { overlay.classList.remove('hidden'); }
+function closeModal() { overlay.classList.add('hidden'); }
+```
+
+If you forget to put `hidden` in the HTML, the modal is visible as soon as the page loads. The close button still works (adds `hidden`), but users see an unwanted popup on first visit.
+
+---
+
+## 93. InterceptorRegistry path exclusions — bare paths vs `/**`
+
+Spring's `AntPathMatcher` treats `/**` as "this path and all sub-paths." It does **not** match the bare path without a trailing slash if the path has no sub-paths:
+
+```java
+.excludePathPatterns("/v3/api-docs/**")   // matches /v3/api-docs/openapi.json ✅
+                                          // does NOT match /v3/api-docs         ❌
+```
+
+You must list both:
+
+```java
+.excludePathPatterns("/v3/api-docs", "/v3/api-docs/**")
+```
+
+The same applies to any endpoint where the bare URL and sub-URLs should both be public. A complete exclusion list for a typical Spring Boot + springdoc project:
+
+```java
+.excludePathPatterns(
+    "/provision",
+    "/", "/index.html", "/docs.js", "/docs.css",
+    "/documentation", "/documentation.html",
+    "/docs", "/docs/**",
+    "/swagger-ui/**", "/swagger-ui.html",
+    "/webjars/**",
+    "/v3/api-docs", "/v3/api-docs/**",
+    "/debug/**"
+)
+```
+
+`/webjars/**` is easy to forget — springdoc loads its own JavaScript and CSS from `/webjars/`, and requests to those paths will hit the interceptor if not excluded.
+
 *This guide reflects the state of the project as of May 2026.*
