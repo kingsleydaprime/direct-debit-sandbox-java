@@ -25,7 +25,7 @@ public class SubscriptionRecord {
     private String currency;
     private String country;
     private String debitNotificationAccount;
-    private String callbackUrl;
+
     private String status; // ACTIVE, PAUSED, CANCELLED
     private boolean triggerDebitStatus;
     private boolean notificationStatus;

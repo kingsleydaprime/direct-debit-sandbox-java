@@ -20,5 +20,7 @@ public class TransactionRecord {
     private String responseMessage;
     private String timestamp;
     private String charge;
-    private String status; // PROCESSING, SUCCESS, FAILED
+    private String status; // PROCESSING, SUCCESS, FAILED, RETRYING, EXHAUSTED
+    private int retriesUsed;
+    private int maxRetries;
 }

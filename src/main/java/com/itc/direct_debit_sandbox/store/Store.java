@@ -20,10 +20,12 @@ public interface Store {
     void saveTransaction(String reference, TransactionRecord record);
     TransactionRecord getTransaction(String reference);
     boolean transactionExists(String reference);
+    List<TransactionRecord> getAllFailedTransactions();
 
     // Provision methods
     void saveProvision(String merchantId, String productId, ProvisionRecord record);
     ProvisionRecord getProvision(String merchantId, String productId);
+    ProvisionRecord getProvisionByTransflowId(String transflowId);
 
     // PreAuthorization methods
     void createPreAuth(String preApprovalId, PreAuthRecord record);

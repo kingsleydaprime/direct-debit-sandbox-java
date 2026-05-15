@@ -1,21 +1,29 @@
 package com.itc.direct_debit_sandbox.subscriptions;
 
 import com.itc.direct_debit_sandbox.callbacks.CallbackService;
+import com.itc.direct_debit_sandbox.common.CountryDialingCode;
+import com.itc.direct_debit_sandbox.provision.ProductType;
+import com.itc.direct_debit_sandbox.store.ConfigurationItem;
 import com.itc.direct_debit_sandbox.store.InMemoryStore;
+import com.itc.direct_debit_sandbox.store.ProvisionRecord;
 import com.itc.direct_debit_sandbox.store.SubscriptionRecord;
 import com.itc.direct_debit_sandbox.subscriptions.dto.CancelRequest;
 import com.itc.direct_debit_sandbox.subscriptions.dto.CustomerSubRequest;
 import com.itc.direct_debit_sandbox.subscriptions.dto.SubscriptionRequestDto;
 import com.itc.direct_debit_sandbox.subscriptions.dto.UpdateRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class SubscriptionService {
 
     private final InMemoryStore store;
@@ -73,6 +81,83 @@ public class SubscriptionService {
         return null;
     }
 
+    // ─── PRODUCT TYPE VALIDATION ─────────────────────────────────────────────
+
+    private Map<String, Object> checkSubscriptionProductType(String merchantId, String productId) {
+        ProvisionRecord provision = store.getProvision(merchantId, productId);
+        if (provision == null || provision.getProductType() == null) {
+            Map<String, Object> err = new HashMap<>();
+            err.put("responseCode",    "100");
+            err.put("responseMessage", "Product type not configured. Provision with productType SUBSCRIPTIONS_ONLY or HYBRID to use subscription endpoints");
+            return err;
+        }
+        if (provision.getProductType() == ProductType.PREAUTHORIZED_ONLY) {
+            Map<String, Object> err = new HashMap<>();
+            err.put("responseCode",    "100");
+            err.put("responseMessage", "PREAUTHORIZED_ONLY products cannot use subscription endpoints. Set productType to SUBSCRIPTIONS_ONLY or HYBRID");
+            return err;
+        }
+        return null;
+    }
+
+    // ─── PHONE / COUNTRY VALIDATION ─────────────────────────────────────────
+
+    private Map<String, Object> validatePhoneCountry(String country, String phone, String fieldName) {
+        return CountryDialingCode.fromIso(country)
+                .flatMap(c -> c.validatePhone(fieldName, phone))
+                .map(msg -> {
+                    Map<String, Object> err = new HashMap<>();
+                    err.put("responseCode",    "100");
+                    err.put("responseMessage", msg);
+                    return err;
+                })
+                .orElse(null);
+    }
+
+    // ─── CONFIG HELPERS ──────────────────────────────────────────────────────
+    // Returns the requested config list merged with any missing product defaults
+    // from the ProvisionRecord. Items already present in the request are never overwritten.
+
+    private List<ConfigurationItem> resolveEffectiveConfig(
+            List<ConfigurationItem> requested, ProvisionRecord provision) {
+
+        List<ConfigurationItem> resolved = requested != null ? new ArrayList<>(requested) : new ArrayList<>();
+        Set<String> present = resolved.stream().map(ConfigurationItem::getName).collect(Collectors.toSet());
+
+        if (provision != null) {
+            if (!present.contains("retryAttempts") && provision.getRetryAttempts() != null) {
+                ConfigurationItem item = new ConfigurationItem();
+                item.setName("retryAttempts");
+                item.setValue(provision.getRetryAttempts().toString());
+                resolved.add(item);
+            }
+            if (!present.contains("skipFactor") && provision.getSkipFactor() != null) {
+                ConfigurationItem item = new ConfigurationItem();
+                item.setName("skipFactor");
+                item.setValue(provision.getSkipFactor().toString());
+                resolved.add(item);
+            }
+            if (!present.contains("daysToDebitDayNotice") && provision.getDaysToDebitDayNotice() != null) {
+                ConfigurationItem item = new ConfigurationItem();
+                item.setName("daysToDebitDayNotice");
+                item.setValue(provision.getDaysToDebitDayNotice());
+                resolved.add(item);
+            }
+        }
+        return resolved;
+    }
+
+    private OptionalInt getConfigIntValue(List<ConfigurationItem> config, String name) {
+        if (config == null) return OptionalInt.empty();
+        return config.stream()
+                .filter(c -> name.equals(c.getName()))
+                .mapToInt(c -> {
+                    try { return Integer.parseInt(c.getValue()); }
+                    catch (NumberFormatException e) { return -1; }
+                })
+                .findFirst();
+    }
+
     // ─── SUBSCRIBE ───────────────────────────────────────────────────────────
 
     public Map<String, Object> subscribe(
@@ -83,6 +168,18 @@ public class SubscriptionService {
 
         Map<String, Object> authError = validateHeaders(transflowId, apiKey, country);
         if (authError != null) return authError;
+
+        // Guard: product type must allow subscriptions
+        Map<String, Object> typeError = checkSubscriptionProductType(req.getMerchantId(), req.getProductId());
+        if (typeError != null) return typeError;
+
+        // Guard: debitAccount and debitNotificationAccount must match the x-country dialing prefix
+        Map<String, Object> phoneError = validatePhoneCountry(country, req.getDebitAccount(), "debitAccount");
+        if (phoneError != null) return phoneError;
+        if (req.getDebitNotificationAccount() != null && !req.getDebitNotificationAccount().isBlank()) {
+            phoneError = validatePhoneCountry(country, req.getDebitNotificationAccount(), "debitNotificationAccount");
+            if (phoneError != null) return phoneError;
+        }
 
         // Guard against duplicate references — same referenceNo already exists
         if (req.getReferenceNo() != null && store.getSubscriptionByReference(req.getReferenceNo()) != null) {
@@ -111,9 +208,39 @@ public class SubscriptionService {
             }
         }
 
+        if(country.equals("GH") && Channel.VODAFONE == req.getChannel() ) {
+            req.setChannel(Channel.TELECEL);
+            log.info("Channel changed from VODAFONE to TELECEL");
+        }
+
+
+
         // Guard: debitDay must be valid for the given frequencyType
         Map<String, Object> debitDayError = validateDebitDay(req.getFrequencyType(), req.getDebitDay());
         if (debitDayError != null) return debitDayError;
+
+        // Guard: DAILY subscriptions cannot have notificationStatus enabled
+        if (FrequencyType.DAILY == req.getFrequencyType() && Boolean.TRUE.equals(req.getNotificationStatus())) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("responseCode", "100");
+            error.put("responseMessage", "notificationStatus cannot be enabled for DAILY subscriptions");
+            return error;
+        }
+
+        // Resolve effective configuration: merge request config with product defaults
+        ProvisionRecord provision = store.getProvision(req.getMerchantId(), req.getProductId());
+        List<ConfigurationItem> effectiveConfig = resolveEffectiveConfig(req.getConfiguration(), provision);
+
+        // Guard: DAILY subscriptions cannot have retryAttempts > 1
+        if (FrequencyType.DAILY == req.getFrequencyType()) {
+            OptionalInt retryAttempts = getConfigIntValue(effectiveConfig, "retryAttempts");
+            if (retryAttempts.isPresent() && retryAttempts.getAsInt() > 1) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("responseCode", "100");
+                error.put("responseMessage", "retryAttempts cannot exceed 1 for DAILY subscriptions");
+                return error;
+            }
+        }
 
         // Generate unique IDs for this subscription
         String mandateId = UUID.randomUUID().toString();
@@ -139,7 +266,7 @@ public class SubscriptionService {
                 // Boolean fields: treat null as false
                 .triggerDebitStatus(Boolean.TRUE.equals(req.getTriggerDebitStatus()))
                 .notificationStatus(Boolean.TRUE.equals(req.getNotificationStatus()))
-                .configuration(req.getConfiguration())
+                .configuration(effectiveConfig)
                 .createdAt(Instant.now().toString())
                 .build();
 
@@ -192,7 +319,7 @@ public class SubscriptionService {
 
         store.updateSubscription(req.getSubscriptionId(), existing);
 
-        callbackService.fireCallbacks(existing);
+        // callbackService.fireCallbacks(existing);
 
         Map<String, Object> response = new HashMap<>();
         response.put("responseCode",    "03");
@@ -243,10 +370,35 @@ public class SubscriptionService {
             return response;
         }
 
+        List<Map<String, Object>> sanitizedResults = results.stream()
+                .map(this::toSubscriptionResponse)
+                .collect(Collectors.toList());
+
         response.put("responseCode",    "01");
         response.put("responseMessage", "operation successful");
-        response.put("data",            results);
+        response.put("data",            sanitizedResults);
         return response;
+    }
+
+    private Map<String, Object> toSubscriptionResponse(SubscriptionRecord record) {
+        Map<String, Object> subscription = new LinkedHashMap<>();
+        subscription.put("merchantId",               record.getMerchantId());
+        subscription.put("productId",                record.getProductId());
+        subscription.put("subscriptionId",           record.getId());
+        subscription.put("debitAccount",             record.getDebitAccount());
+        subscription.put("country",                  record.getCountry());
+        subscription.put("debitAmount",              record.getDebitAmount());
+        subscription.put("frequencyType",            record.getFrequencyType());
+        subscription.put("startDate",                record.getStartDate());
+        subscription.put("endDate",                  record.getEndDate());
+        subscription.put("debitDay",                 record.getDebitDay());
+        subscription.put("referenceNo",              record.getReferenceNo());
+        subscription.put("channel",                  record.getChannel());
+        subscription.put("debitTime",                record.getDebitTime());
+        subscription.put("debitNotificationAccount", record.getDebitNotificationAccount());
+        subscription.put("currency",                 record.getCurrency());
+        subscription.put("created",                  record.getCreatedAt());
+        return subscription;
     }
 
     // Delegates to the correctly-named method above.

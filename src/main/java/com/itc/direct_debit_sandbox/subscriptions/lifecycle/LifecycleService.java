@@ -10,7 +10,7 @@ import com.itc.direct_debit_sandbox.store.Store;
 import com.itc.direct_debit_sandbox.store.SubscriptionRecord;
 import com.itc.direct_debit_sandbox.store.TransactionRecord;
 import com.itc.direct_debit_sandbox.subscriptions.dto.ApiResponseDto;
-import com.itc.direct_debit_sandbox.scenarios.ScenarioEngine;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -28,7 +28,6 @@ import java.util.UUID;
 public class LifecycleService {
 
     private final Store store; // InMemoryStore implementation (owned by Person 1)
-    private final ScenarioEngine scenarioEngine; // resolves response codes for debit scenarios
     private final CallbackService callbackService; // fires async transaction callbacks
 
     /**
@@ -123,13 +122,15 @@ public class LifecycleService {
                     .build();
         }
 
-        // Block the call if automatic retries are still in progress for this reference.
-        // The transaction record for a subscription is stored under the same referenceNo key.
+        // Block if automatic retries are still running (PROCESSING) or a retry attempt
+        // is currently executing (RETRYING). The caller must wait for completion.
         TransactionRecord existingTx = store.getTransaction(request.getReferenceId());
-        if (existingTx != null && "PROCESSING".equalsIgnoreCase(existingTx.getStatus())) {
+        if (existingTx != null && (
+                "PROCESSING".equalsIgnoreCase(existingTx.getStatus()) ||
+                "RETRYING".equalsIgnoreCase(existingTx.getStatus()))) {
             return ApiResponseDto.builder()
                     .responseCode("100")
-                    .responseMessage("Automatic retries are still in progress. Please wait for them to complete before triggering manually.")
+                    .responseMessage("A retry is already in progress for this reference. Please wait for it to complete before triggering manually.")
                     .build();
         }
 

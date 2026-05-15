@@ -5,7 +5,10 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Component
 public class InMemoryStore implements Store {
@@ -15,13 +18,15 @@ public class InMemoryStore implements Store {
     private final Map<String, TransactionRecord>  transactions       = new ConcurrentHashMap<>();
     // Key = "merchantId:productId"
     private final Map<String, ProvisionRecord>    provisions         = new ConcurrentHashMap<>();
+    // Secondary index: transflowId → "merchantId:productId"
+    private final Map<String, String>             transflowIdIndex   = new ConcurrentHashMap<>();
 
     // PreAuth primary map: preApprovalId → record
     private final Map<String, PreAuthRecord> preAuths = new ConcurrentHashMap<>();
 
     // Secondary indexes for subscription O(1) lookups
-    private final Map<String, String> referenceIndex      = new ConcurrentHashMap<>(); // referenceNo → subscriptionId
-    private final Map<String, String> accountProductIndex = new ConcurrentHashMap<>(); // "debitAccount:productId" → subscriptionId
+    private final Map<String, String>      referenceIndex      = new ConcurrentHashMap<>(); // referenceNo → subscriptionId
+    private final Map<String, Set<String>> accountProductIndex = new ConcurrentHashMap<>(); // "debitAccount:productId" → Set<subscriptionId>
 
     // Secondary indexes for preAuth O(1) lookups
     private final Map<String, String> preAuthReferenceIndex = new ConcurrentHashMap<>(); // referenceNo  → preApprovalId
@@ -33,7 +38,10 @@ public class InMemoryStore implements Store {
         if (record.getReferenceNo() != null) {
             referenceIndex.put(record.getReferenceNo(), subscriptionId);
         }
-        accountProductIndex.put(record.getDebitAccount() + ":" + record.getProductId(), subscriptionId);
+        accountProductIndex
+                .computeIfAbsent(record.getDebitAccount() + ":" + record.getProductId(),
+                        k -> ConcurrentHashMap.newKeySet())
+                .add(subscriptionId);
     }
 
     public void updateSubscription(String subscriptionId, SubscriptionRecord record) {
@@ -50,10 +58,12 @@ public class InMemoryStore implements Store {
     }
 
     public List<SubscriptionRecord> getSubscriptionsByAccount(String debitAccount, String productId) {
-        String id = accountProductIndex.get(debitAccount + ":" + productId);
-        if (id == null) return Collections.emptyList();
-        SubscriptionRecord record = subscriptions.get(id);
-        return record != null ? List.of(record) : Collections.emptyList();
+        Set<String> ids = accountProductIndex.get(debitAccount + ":" + productId);
+        if (ids == null || ids.isEmpty()) return Collections.emptyList();
+        return ids.stream()
+                .map(subscriptions::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
     }
 
     public void updateSubscriptionStatus(String subscriptionId, String status) {
@@ -69,7 +79,12 @@ public class InMemoryStore implements Store {
             if (record.getReferenceNo() != null) {
                 referenceIndex.remove(record.getReferenceNo());
             }
-            accountProductIndex.remove(record.getDebitAccount() + ":" + record.getProductId());
+            String indexKey = record.getDebitAccount() + ":" + record.getProductId();
+            Set<String> ids = accountProductIndex.get(indexKey);
+            if (ids != null) {
+                ids.remove(subscriptionId);
+                if (ids.isEmpty()) accountProductIndex.remove(indexKey);
+            }
         }
     }
 
@@ -86,13 +101,32 @@ public class InMemoryStore implements Store {
         return transactions.containsKey(reference);
     }
 
+    public List<TransactionRecord> getAllFailedTransactions() {
+        return transactions.values().stream()
+                .filter(t -> "FAILED".equalsIgnoreCase(t.getStatus()) && t.getRetriesUsed() < t.getMaxRetries())
+                .collect(java.util.stream.Collectors.toList());
+    }
+
     // Provision methods
     public void saveProvision(String merchantId, String productId, ProvisionRecord record) {
-        provisions.put(merchantId + ":" + productId, record);
+        String key = merchantId + ":" + productId;
+        ProvisionRecord existing = provisions.get(key);
+        if (existing != null && existing.getTransflowId() != null) {
+            transflowIdIndex.remove(existing.getTransflowId());
+        }
+        provisions.put(key, record);
+        if (record.getTransflowId() != null) {
+            transflowIdIndex.put(record.getTransflowId(), key);
+        }
     }
 
     public ProvisionRecord getProvision(String merchantId, String productId) {
         return provisions.get(merchantId + ":" + productId);
+    }
+
+    public ProvisionRecord getProvisionByTransflowId(String transflowId) {
+        String key = transflowIdIndex.get(transflowId);
+        return key != null ? provisions.get(key) : null;
     }
 
     // PreAuthorization methods
