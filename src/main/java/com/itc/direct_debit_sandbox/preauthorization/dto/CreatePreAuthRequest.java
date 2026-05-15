@@ -41,6 +41,4 @@ public class CreatePreAuthRequest {
     @Schema(example = "2027-06-01", description = "Must be after startDate")
     private String endDate;
 
-    @Schema(example = "https://webhook.site/05b66f52-ae04-4130-a287-db6737198eb9", description = "Optional — falls back to the provisioned callback URL")
-    private String callbackUrl;
 }

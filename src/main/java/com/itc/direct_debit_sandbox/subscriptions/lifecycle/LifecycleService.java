@@ -122,6 +122,17 @@ public class LifecycleService {
                     .build();
         }
 
+        // Block if the subscription window hasn't opened yet
+        if (record.getStartDate() != null && !record.getStartDate().isBlank()) {
+            LocalDate start = LocalDate.parse(record.getStartDate());
+            if (LocalDate.now().isBefore(start)) {
+                return ApiResponseDto.builder()
+                        .responseCode("100")
+                        .responseMessage("Subscription start date has not been reached yet")
+                        .build();
+            }
+        }
+
         // Block if automatic retries are still running (PROCESSING) or a retry attempt
         // is currently executing (RETRYING). The caller must wait for completion.
         TransactionRecord existingTx = store.getTransaction(request.getReferenceId());
