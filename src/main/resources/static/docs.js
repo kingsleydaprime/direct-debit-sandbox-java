@@ -16,8 +16,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── Spec loading ───────────────────────────────────────────────────────────
 async function fetchSpec() {
+  const url = window.SPEC_URL || '/v3/api-docs';
   try {
-    const res = await fetch('/v3/api-docs');
+    const res = await fetch(url);
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     spec = await res.json();
     renderSidebar();
@@ -86,24 +87,48 @@ function closeAuthModal() {
 
 function renderAuthModal() {
   if (!spec) return;
-  const schemes = spec.components?.securitySchemes || {};
   const body = document.getElementById('auth-modal-body');
-  if (!Object.keys(schemes).length) {
+  const fields = buildAuthFields();
+  if (!fields.length) {
     body.innerHTML = '<p style="color:#9ca3af;font-size:13px">No security schemes defined.</p>';
     return;
   }
-  body.innerHTML = Object.entries(schemes).map(([name, s]) => `
+  body.innerHTML = fields.map(({ headerName, label, meta, description }) => `
     <div class="auth-field">
       <div class="auth-field-head">
-        <span class="auth-field-name">${name}</span>
-        <span class="auth-field-meta">${s.in || ''} · ${s.type || ''}</span>
+        <span class="auth-field-name">${label}</span>
+        <span class="auth-field-meta">${meta}</span>
       </div>
-      ${s.description ? `<p class="auth-field-desc">${s.description}</p>` : ''}
+      ${description ? `<p class="auth-field-desc">${escHtml(description)}</p>` : ''}
       <input class="text-input auth-input" type="text"
-        data-name="${name}" placeholder="Value…"
-        value="${escHtml(authValues[name] || '')}"/>
+        data-name="${headerName}" placeholder="Value…"
+        value="${escHtml(authValues[headerName] || '')}"/>
     </div>
   `).join('');
+}
+
+function buildAuthFields() {
+  const fields = [];
+  const seen = new Set();
+
+  // Security schemes — use the actual header name (s.name) as the key
+  const schemes = spec.components?.securitySchemes || {};
+  for (const [, s] of Object.entries(schemes)) {
+    const headerName = s.name || s.paramName;
+    if (!headerName || seen.has(headerName)) continue;
+    seen.add(headerName);
+    fields.push({ headerName, label: headerName, meta: `${s.in || 'header'} · ${s.type || 'apiKey'}`, description: s.description || '' });
+  }
+
+  // Global header parameters (x-transflowId, x-country, etc.)
+  const params = spec.components?.parameters || {};
+  for (const [, p] of Object.entries(params)) {
+    if (p.in !== 'header' || seen.has(p.name)) continue;
+    seen.add(p.name);
+    fields.push({ headerName: p.name, label: p.name, meta: 'header · required', description: p.description || '' });
+  }
+
+  return fields;
 }
 
 // ── Sidebar toggle ─────────────────────────────────────────────────────────
@@ -121,12 +146,18 @@ function wireSidebarToggle() {
 function renderSidebar() {
   const nav = document.getElementById('sidebar-nav');
   const groups = groupByTag(spec);
-  nav.innerHTML = Object.entries(groups).map(([tag, ops]) => `
+  const info = spec.info || {};
+  nav.innerHTML = `
+    <div class="intro-item active" id="intro-item" onclick="selectIntro()">
+      <span class="intro-icon">☰</span>
+      <span class="intro-label">${info.title || 'Introduction'}</span>
+    </div>
+  ` + Object.entries(groups).map(([tag, ops]) => `
     <div class="tag-group">
       <div class="tag-header" onclick="toggleTag(this)">
-        <span class="tag-arrow">▾</span>
         <span class="tag-name">${tag}</span>
         <span class="tag-count">${ops.length}</span>
+        <span class="tag-arrow">▾</span>
       </div>
       <div class="tag-ops">
         ${ops.map(({ path, method, op }) => `
@@ -186,9 +217,20 @@ function renderWelcome() {
   `;
 }
 
+function selectIntro() {
+  document.querySelectorAll('.op-item').forEach(el => el.classList.remove('active'));
+  const intro = document.getElementById('intro-item');
+  if (intro) intro.classList.add('active');
+  activeKey = null;
+  closeTryPanel();
+  renderWelcome();
+}
+
 // ── Operation detail ───────────────────────────────────────────────────────
 function selectOp(method, path) {
   document.querySelectorAll('.op-item').forEach(el => el.classList.remove('active'));
+  const intro = document.getElementById('intro-item');
+  if (intro) intro.classList.remove('active');
   const key = `${method}::${path}`;
   const item = document.querySelector(`.op-item[data-key="${key}"]`);
   if (item) item.classList.add('active');
@@ -377,17 +419,15 @@ function openTryPanel(method, path) {
 }
 
 function renderTryBody(method, path, op) {
-  const schemes = spec.components?.securitySchemes || {};
-  const schemeNames = Object.keys(schemes);
-
-  const authSection = schemeNames.length ? `
+  const authFields = buildAuthFields();
+  const authSection = authFields.length ? `
     <div class="try-section">
       <div class="try-section-head">
         Authorization
         <button class="link-btn" onclick="openAuthModal()">Edit</button>
       </div>
       <div id="try-auth-rows">
-        ${buildAuthRows(schemeNames, schemes)}
+        ${buildAuthRows()}
       </div>
     </div>
   ` : '';
@@ -416,11 +456,11 @@ function renderTryBody(method, path, op) {
   `;
 }
 
-function buildAuthRows(names, schemes) {
-  return names.map(name => {
-    const val = authValues[name];
+function buildAuthRows() {
+  return buildAuthFields().map(({ headerName }) => {
+    const val = authValues[headerName];
     return `<div class="auth-row">
-      <span class="auth-row-name">${name}</span>
+      <span class="auth-row-name">${headerName}</span>
       <span class="auth-row-value ${val ? 'set' : ''}">${val ? '••••••••' : 'not set'}</span>
     </div>`;
   }).join('');
@@ -429,8 +469,7 @@ function buildAuthRows(names, schemes) {
 function refreshTryAuth() {
   const el = document.getElementById('try-auth-rows');
   if (!el) return;
-  const schemes = spec.components?.securitySchemes || {};
-  el.innerHTML = buildAuthRows(Object.keys(schemes), schemes);
+  el.innerHTML = buildAuthRows();
 }
 
 function closeTryPanel() {
@@ -448,10 +487,9 @@ async function executeReq(method, path) {
   responseDiv.innerHTML = '<div class="try-loading">Sending…</div>';
 
   const headers = { 'Content-Type': 'application/json' };
-  // Inject auth headers
-  const schemes = spec.components?.securitySchemes || {};
-  for (const name of Object.keys(schemes)) {
-    if (authValues[name]) headers[schemes[name].paramName || name] = authValues[name];
+  // Inject all auth headers (security schemes + global header parameters)
+  for (const { headerName } of buildAuthFields()) {
+    if (authValues[headerName]) headers[headerName] = authValues[headerName];
   }
 
   let body;

@@ -36,3 +36,10 @@ build/
 .gradle
 bin/
 /bin
+
+/**/redoc.cdn.js
+/**/redoc.html
+/**/ag-script.js
+src/main/resources/static/redoc.cdn.js
+src/main/resources/static/redoc.html
+src/main/resources/static/ag-script.js

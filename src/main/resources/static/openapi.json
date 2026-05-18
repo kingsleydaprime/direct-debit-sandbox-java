@@ -1,0 +1,2260 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Direct Debit v2 API",
+    "description": "# Introduction\n\n## Overview\n\nThe direct debit v2 API from IT Consortium (ITC) allows third parties to\ndebit customers across all supported mobile wallets, cards and bank\naccounts specified in this document.\n\n## Merchant Onboarding\n\nThe direct debit v2 provides three categories for third parties. They\nare:\n\n- **Subscriptions Only:** These are merchants whose integration is\n  autodebits only.\n\n- **Hybrid:** These are merchants whose integrations are autodebits\n  and manual debits for failed autodebits.\n\n- **Preauthorized debit only:** These are merchants whose integration\n  is for manual preauthorized debits.\n\n### Getting Started\n\nTo be given access to successfully integrate into this API, a client\nneeds to submit all required documents to ITC for onboarding. After\nverification of all required documents, the following credentials are\nissued to the merchant, each for specific purposes. Below are some\nrelevant credentials and their respective uses in direct debit API\nintegration and usage.\n\n### Authentication \n\nAll requests to direct debit require authentication. The main\ncredentials used for authentication are:\n\na. Transflow Id\n\nb. Merchant Product Id\n\nThe aforementioned credentials will be given to the merchant after\nsuccessful onboarding.\n\n### Direct Debit Merchant Catalogue Integration\n\nAs part of new features being offered to direct debit merchants, key\nconfigurations are required as part of the onboarding process. These\ncredential set up will require a merchant to use their merchant\nproductId to retrieve configurations needed per product.\n\nEach product of a merchant is expected to have key configurations as\npart of the enhanced or advanced direct debit v2 features. Below are the\nconfigurations and their significance:\n\n| Configuration Name | Configuration Value | Interpretation |\n|-------------------|---------------------|----------------|\n| retryAttempts | Integer(minimum value 1) | Number of automatic retries permitted for a product. Any retry attempt beyond 4 has cost implications. |\n| skipFactor | Integer(minimum value 1) | This works like a multiplier. Assuming a daily debit with a skip factor of 2, debit will take place every 2 days, if it's a weekly debit, it means debit will occur every 2 weeks. |\n| daysToDebitDayNotice | string list | This refers to which day to the day of debit, a subscriber should be notified. It can be a list of days. Assuming a string list of 1, 3, the implication will be that the subscriber will be notified of a debit, 3 days and also 1 day from the day of debit. |\n\n\n**Note**\n\n1. In any situation where a payload which is expected to have any of\n   these values aren't provided, the product's default configuration is used.\n\n## Callbacks\n\nThe Direct Debit v2 API sends callback notifications to inform merchants about the status of various operations. Merchants must configure a callback URL during onboarding to receive these notifications.\n\n\n### Debit Callback\n\nThis callback is sent after a debit transaction has been processed, whether it's a scheduled subscription debit, a triggered debit, or a one-time debit.\n\n**Payload Structure:**\n```json\n{\n  \"responseCode\": \"01\",\n  \"responseMessage\": \"Transaction processed successfully\",\n  \"debitOrderTransactionId\": \"TXN123456789\",\n  \"networkTransactionId\": \"NTX987654321\",\n  \"merchantId\": \"MCHT001122\",\n  \"productId\": \"PROD005\",\n  \"mandateId\": \"MAND123459\",\n  \"debitAccount\": \"233557207736\",\n  \"debitAmount\": \"33.00\",\n  \"reference\": \"REF2025123456\",\n  \"narration\": \"INITIAL DEBIT CALL FOR ID 1765195913561.Y\",\n  \"timestamp\": \"2025-12-08 12:12:58\",\n  \"channel\": \"MTN\",\n  \"charge\": \"0.33\"\n}\n```\n\n### Preapproval Callback\n\nThis callback is sent when a mandate (subscription, hybrid or preauthorization) has been successfully created or scheduled.\n\n**Payload Structure:**\n```json\n{\n  \"responseCode\": \"01\",\n  \"responseMessage\": \"Recurring subscription has been scheduled successfully\",\n  \"mandateId\": \"MAND123459\",\n  \"merchantId\": \"MCHT001122\",\n  \"productId\": \"PROD005\",\n  \"debitAccount\": \"233557207736\",\n  \"reference\": \"REF2025123456\",\n  \"channel\": \"MTN\",\n  \"country\": \"GH\"\n}\n```\n\n### Response Codes\n\nCommon response codes you may receive in callbacks:\n\n| Response Code | Description |\n|--------------|-------------|\n| 01 | Success - Transaction/Mandate processed successfully |\n| 03 | Processing - Request is being processed |\n| 100 | General Failure |\n| 04 | Pre-approval pending. This callback responses are sent when a preapproval request remains uattended to by a merchant's customer, three minutes after it was sent. *If request remains unapproved after six minutes, a general failure callback (code 100) is sent.* |\n| 111 | Inconclusive - Transaction inconclusive |\n| 104 | Duplicate Transaction - A transaction with the same reference already processed|\n| 101 | Insufficient Funds - Insufficient funds in customer account |\n| 131 | Request Timeout - Request timed out |\n\n\n### Callback Security\n\n- All callbacks are sent via HTTP POST to your configured callback URL\n",
+    "version": "2.0.0",
+    "contact": {
+      "name": "IT Consortium (ITC)"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://apisuat.itcsrvc.com/direct-debit",
+      "description": "UAT Environment"
+    },
+    {
+      "url": "https://prod-api.example.com",
+      "description": "Production Environment"
+    }
+  ],
+  "security": [
+    {
+      "ApiKeyAuth": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-key",
+        "description": "API key of specific merchant"
+      }
+    },
+    "schemas": {
+      "ProcessedResponse": {
+        "type": "object",
+        "properties": {
+          "responseCode": {
+            "type": "string",
+            "example": "01"
+          },
+          "responseMessage": {
+            "type": "string",
+            "example": "your request has been processed"
+          }
+        },
+        "required": [
+          "responseCode",
+          "responseMessage"
+        ]
+      },
+      "ProcessingResponse": {
+        "type": "object",
+        "properties": {
+          "responseCode": {
+            "type": "string",
+            "example": "03"
+          },
+          "responseMessage": {
+            "type": "string",
+            "example": "your request is being processed"
+          }
+        },
+        "required": [
+          "responseCode",
+          "responseMessage"
+        ]
+      },
+      "TriggerDebitResponse": {
+        "type": "object",
+        "properties": {
+          "responseCode": {
+            "type": "string",
+            "example": "03"
+          },
+          "responseMessage": {
+            "type": "string",
+            "example": "processing"
+          }
+        },
+        "required": [
+          "responseCode",
+          "responseMessage"
+        ]
+      },
+      "UnauthorizedMerchantResponse": {
+        "type": "object",
+        "properties": {
+          "responseCode": {
+            "type": "string",
+            "example": "109"
+          },
+          "responseMessage": {
+            "type": "string",
+            "example": "unauthorized merchant"
+          }
+        },
+        "required": [
+          "responseCode",
+          "responseMessage"
+        ]
+      },
+      "DuplicateSubscriptionResponse": {
+        "type": "object",
+        "properties": {
+          "responseCode": {
+            "type": "string",
+            "example": "104"
+          },
+          "responseMessage": {
+            "type": "string",
+            "example": "subscription with this reference number already exists"
+          }
+        },
+        "required": [
+          "responseCode",
+          "responseMessage"
+        ]
+      },
+      "DuplicatePreauthorizationResponse": {
+        "type": "object",
+        "properties": {
+          "responseCode": {
+            "type": "string",
+            "example": "103"
+          },
+          "responseMessage": {
+            "type": "string",
+            "example": "already preauthorized for this product"
+          }
+        },
+        "required": [
+          "responseCode",
+          "responseMessage"
+        ]
+      },
+      "MandateNotFoundResponse": {
+        "type": "object",
+        "properties": {
+          "responseCode": {
+            "type": "string",
+            "example": "103"
+          },
+          "responseMessage": {
+            "type": "string",
+            "example": "mandate not found"
+          }
+        },
+        "required": [
+          "responseCode",
+          "responseMessage"
+        ]
+      },
+      "GeneralFailureResponse": {
+        "type": "object",
+        "properties": {
+          "responseCode": {
+            "type": "string",
+            "example": "100"
+          },
+          "responseMessage": {
+            "type": "string",
+            "example": "General Failure"
+          }
+        },
+        "required": [
+          "responseCode",
+          "responseMessage"
+        ]
+      },
+      "SubscriptionObject": {
+        "type": "object",
+        "properties": {
+          "merchantId": {
+            "type": "string",
+            "description": "Id of merchant",
+            "example": "aldjfalsjfs-aldfjakfdljs-adfljas"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "aldjfalsjfs-aldfjakfdljs-adfljas"
+          },
+          "subscriptionId": {
+            "type": "string",
+            "description": "Unique subscription identifier",
+            "example": "adkfasj;df0wradjslfakjds"
+          },
+          "debitAccount": {
+            "type": "string",
+            "description": "Account from which debits are made",
+            "example": "233557207736"
+          },
+          "country": {
+            "type": "string",
+            "description": "Country code",
+            "example": "gh"
+          },
+          "debitAmount": {
+            "type": "string",
+            "description": "Amount to be debited",
+            "example": "0.10"
+          },
+          "frequencyType": {
+            "type": "string",
+            "description": "How often debit should be made",
+            "example": "Weekly"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date",
+            "description": "When subscription or deduction begins",
+            "example": "2025-09-03"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date",
+            "description": "When subscription or deduction ends",
+            "example": "2075-05-23"
+          },
+          "debitDay": {
+            "type": "string",
+            "description": "Day within a week, month or year on which debit will take place",
+            "example": "1"
+          },
+          "referenceNo": {
+            "type": "string",
+            "description": "Reference number of debit",
+            "example": "2022591843966DL1P0094170"
+          },
+          "channel": {
+            "type": "string",
+            "description": "Debit account medium",
+            "example": "MTN"
+          },
+          "debitTime": {
+            "type": "string",
+            "pattern": "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "Time of debit on debit day in HH:MM format (24-hour)",
+            "example": "14:30"
+          },
+          "debitNotificationAccount": {
+            "type": "string",
+            "description": "account to receive debit notification",
+            "example": "233557207736"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency of debit account holder",
+            "example": "GHS"
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when subscription was created"
+          }
+        },
+        "required": [
+          "merchantId",
+          "productId",
+          "subscriptionId",
+          "debitAccount",
+          "country",
+          "debitAmount",
+          "frequencyType",
+          "startDate",
+          "endDate",
+          "debitDay",
+          "referenceNo",
+          "channel",
+          "debitTime",
+          "debitNotificationAccount",
+          "currency",
+          "created"
+        ]
+      },
+      "SubscriptionDetailsResponse": {
+        "type": "object",
+        "properties": {
+          "responseCode": {
+            "type": "string",
+            "example": "01"
+          },
+          "responseMessage": {
+            "type": "string",
+            "example": "operation successful"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SubscriptionObject"
+          }
+        },
+        "required": [
+          "responseCode",
+          "responseMessage",
+          "data"
+        ]
+      },
+      "CustomerSubscriptionsResponse": {
+        "type": "object",
+        "properties": {
+          "responseCode": {
+            "type": "string",
+            "example": "01"
+          },
+          "responseMessage": {
+            "type": "string",
+            "example": "operation successful"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SubscriptionObject"
+          }
+        },
+        "required": [
+          "responseCode",
+          "responseMessage",
+          "data"
+        ]
+      },
+      "TransactionObject": {
+        "type": "object",
+        "properties": {
+          "mandateId": {
+            "type": "string",
+            "description": "Mandate identifier",
+            "example": "MAND123459"
+          },
+          "merchantId": {
+            "type": "string",
+            "description": "Id of merchant",
+            "example": "MCHT001122"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD005"
+          },
+          "transactionId": {
+            "type": "string",
+            "description": "Transaction identifier",
+            "example": "TXN2025072391"
+          },
+          "uniwalletTransactionId": {
+            "type": "string",
+            "description": "Uniwallet transaction identifier",
+            "example": "UWTX998877688"
+          },
+          "networkTransactionId": {
+            "type": "string",
+            "description": "Network transaction identifier",
+            "example": "NTX11223344"
+          },
+          "debitAccount": {
+            "type": "string",
+            "description": "Account debited",
+            "example": "01234567890121"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code",
+            "example": "GH"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double",
+            "description": "Transaction amount",
+            "example": 250.75
+          },
+          "charge": {
+            "type": "number",
+            "format": "double",
+            "description": "Transaction charge",
+            "example": 2.5
+          },
+          "narration": {
+            "type": "string",
+            "description": "Transaction description",
+            "example": "Recurring monthly debit"
+          },
+          "frequencyType": {
+            "type": "string",
+            "description": "Frequency of debit",
+            "example": "Weekly"
+          },
+          "transactionDate": {
+            "type": "string",
+            "format": "date",
+            "description": "Date of transaction",
+            "example": "2025-07-21"
+          },
+          "periodDate": {
+            "type": "string",
+            "description": "Period date",
+            "example": "2025-11"
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when transaction was created"
+          }
+        },
+        "required": [
+          "transactionId",
+          "merchantId",
+          "productId",
+          "debitAccount",
+          "currency",
+          "amount",
+          "transactionDate",
+          "created"
+        ]
+      },
+      "TransactionStatusCheckResponse": {
+        "type": "object",
+        "properties": {
+          "responseCode": {
+            "type": "string",
+            "enum": [
+              "01",
+              "03"
+            ],
+            "description": "Response code indicating transaction status:\n- 01: Successfully processed\n- 03: Processing\n",
+            "example": "01"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "Successfully processed transaction",
+              "Transaction processing"
+            ],
+            "description": "Human-readable status message",
+            "example": "Successfully processed transaction"
+          }
+        },
+        "required": [
+          "responseCode",
+          "status"
+        ]
+      },
+      "Configuration": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Configuration name",
+            "enum": [
+              "retryAttempts",
+              "skipFactor",
+              "daysToDebitDayNotice"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "description": "Configuration value. For multiple values, use comma-separated format (e.g., \"1,2,3\")"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ]
+      },
+      "SubscriptionRequest": {
+        "type": "object",
+        "properties": {
+          "merchantId": {
+            "type": "string",
+            "description": "Id of merchant",
+            "example": "MERCH_12345"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          },
+          "debitAccount": {
+            "type": "string",
+            "description": "Account from which debits are made",
+            "example": "0241234567"
+          },
+          "debitAmount": {
+            "type": "string",
+            "description": "Amount to be debited",
+            "example": "50.00"
+          },
+          "frequencyType": {
+            "type": "string",
+            "enum": [
+              "DAILY",
+              "WEEKLY",
+              "MONTHLY",
+              "YEARLY"
+            ],
+            "description": "How often debit should be made",
+            "example": "MONTHLY"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date",
+            "description": "When subscription begins",
+            "example": "2026-02-01"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date",
+            "description": "When subscription ends",
+            "example": "2027-02-01"
+          },
+          "debitDay": {
+            "type": "string",
+            "description": "Day on which debit will take place.\n- Daily: 1\n- Weekly: 1-7\n- Monthly: 1-28\n- Yearly: 1-28\n",
+            "example": "15"
+          },
+          "debitTime": {
+            "type": "string",
+            "pattern": "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "Time of debit in HH:MM format (24-hour)",
+            "example": "14:30"
+          },
+          "debitNotificationAccount": {
+            "type": "string",
+            "example": "0241234567",
+            "description": "Account to receive prior debit notification. This is only optional for telco channels as the debit account is assumed as the debit notification account when it's not provided. For bank and card channels, debit notification account must be provided."
+          },
+          "referenceNo": {
+            "type": "string",
+            "description": "Reference number of debit",
+            "example": "REF_2026_001234"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "MTN",
+              "TELECEL",
+              "AT",
+              "AIRTEL",
+              "BANK",
+              "CARD"
+            ],
+            "description": "Debit account medium",
+            "example": "MTN"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency of debit account holder",
+            "example": "GHS"
+          },
+          "triggerDebitStatus": {
+            "type": "boolean",
+            "description": "Option to mop failed debit",
+            "example": true
+          },
+          "notificationStatus": {
+            "type": "boolean",
+            "description": "Option to notify account holder prior to a debit",
+            "example": true
+          },
+          "configuration": {
+            "type": "array",
+            "description": "A list of configuration objects\n",
+            "items": {
+              "$ref": "#/components/schemas/Configuration"
+            },
+            "example": [
+              {
+                "name": "retryAttempts",
+                "value": "3"
+              },
+              {
+                "name": "skipFactor",
+                "value": "1"
+              },
+              {
+                "name": "daysToDebitDayNotice",
+                "value": "1,2,3"
+              }
+            ]
+          }
+        },
+        "required": [
+          "merchantId",
+          "productId",
+          "debitAccount",
+          "debitAmount",
+          "frequencyType",
+          "startDate",
+          "debitDay",
+          "debitTime",
+          "channel",
+          "currency"
+        ]
+      },
+      "UpdateSubscriptionRequest": {
+        "type": "object",
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "description": "Subscriber's subscription Id",
+            "example": "SUB_2026_001234"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          },
+          "merchantId": {
+            "type": "string",
+            "description": "Id of merchant",
+            "example": "MERCH_12345"
+          },
+          "debitAccount": {
+            "type": "string",
+            "description": "Account from which debits are made",
+            "example": "0241234567"
+          },
+          "debitAmount": {
+            "type": "string",
+            "description": "Amount to be debited",
+            "example": "75.00"
+          },
+          "frequencyType": {
+            "type": "string",
+            "enum": [
+              "DAILY",
+              "WEEKLY",
+              "MONTHLY",
+              "YEARLY"
+            ],
+            "description": "How often debit should be made",
+            "example": "MONTHLY"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date",
+            "description": "When subscription begins",
+            "example": "2026-03-01"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date",
+            "description": "When subscription ends",
+            "example": "2027-03-01"
+          },
+          "debitDay": {
+            "type": "string",
+            "description": "Day on which debit will take place.\n- Daily: 1\n- Weekly: 1-7\n- Monthly: 1-28\n- Yearly: 1-28\n",
+            "example": "20"
+          },
+          "debitTime": {
+            "type": "string",
+            "pattern": "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "Time of debit in HH:MM format (24-hour)",
+            "example": "16:00"
+          },
+          "debitNotificationAccount": {
+            "type": "string",
+            "example": "0241234567",
+            "description": "Account to receive prior debit notification. This is only optional for telco channels as the debit account is assumed as the debit notification account when it's not provided. For bank and card channels, debit notification account must be provided."
+          },
+          "referenceNo": {
+            "type": "string",
+            "description": "Reference number of debit",
+            "example": "REF_2026_UPD_001234"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "MTN",
+              "TELECEL",
+              "AT",
+              "AIRTEL",
+              "BANK",
+              "CARD"
+            ],
+            "description": "Debit account medium",
+            "example": "MTN"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency of debit account holder",
+            "example": "GHS"
+          },
+          "country": {
+            "type": "string",
+            "description": "Country code of subscriber",
+            "example": "GH"
+          },
+          "triggerDebitStatus": {
+            "type": "boolean",
+            "description": "Option to mop failed debit",
+            "example": true
+          },
+          "notificationStatus": {
+            "type": "boolean",
+            "description": "Option to notify account holder prior to a debit",
+            "example": true
+          },
+          "configuration": {
+            "type": "array",
+            "description": "A list of configuration objects",
+            "items": {
+              "$ref": "#/components/schemas/Configuration"
+            },
+            "example": [
+              {
+                "name": "retryAttempts",
+                "value": "4"
+              },
+              {
+                "name": "skipFactor",
+                "value": "1"
+              },
+              {
+                "name": "daysToDebitDayNotice",
+                "value": "2,5"
+              }
+            ]
+          }
+        },
+        "required": [
+          "subscriptionId",
+          "productId"
+        ]
+      },
+      "CancelSubscriptionRequest": {
+        "type": "object",
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "description": "Subscriber's subscription Id",
+            "example": "SUB_2026_001234"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          }
+        },
+        "required": [
+          "subscriptionId",
+          "productId"
+        ]
+      },
+      "CustomerSubscriptionsRequest": {
+        "type": "object",
+        "properties": {
+          "debitAccount": {
+            "type": "string",
+            "description": "Debit account of subscriber",
+            "example": "0241234567"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          }
+        },
+        "required": [
+          "debitAccount",
+          "productId"
+        ]
+      },
+      "PauseSubscriptionRequest": {
+        "type": "object",
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "description": "Subscriber's subscription Id",
+            "example": "SUB_2026_001234"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          }
+        },
+        "required": [
+          "subscriptionId",
+          "productId"
+        ]
+      },
+      "ScheduleDebitRequest": {
+        "type": "object",
+        "properties": {
+          "merchantId": {
+            "type": "string",
+            "description": "merchant's Id",
+            "example": "MERCH_12345"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          },
+          "country": {
+            "type": "string",
+            "description": "Country code",
+            "example": "GH"
+          },
+          "debitAccount": {
+            "type": "string",
+            "description": "Account to be debited",
+            "example": "0241234567"
+          },
+          "debitAmount": {
+            "type": "string",
+            "description": "Amount to be debited",
+            "example": "150.00"
+          },
+          "debitDate": {
+            "type": "string",
+            "format": "date",
+            "description": "Day of debit",
+            "example": "2026-02-15"
+          },
+          "debitTime": {
+            "type": "string",
+            "pattern": "^([0-1][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "Time of debit in HH:MM format (24-hour)",
+            "example": "14:30"
+          },
+          "debitNotificationAccount": {
+            "type": "string",
+            "example": "0241234567",
+            "description": "Account to receive prior debit notification. This is only optional for telco channels as the debit account is assumed as the debit notification account when it's not provided. For bank and card channels, debit notification account must be provided."
+          },
+          "referenceNo": {
+            "type": "string",
+            "description": "Reference from third party",
+            "example": "REF_SCHED_001234"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "MTN",
+              "TELECEL",
+              "AT",
+              "AIRTEL",
+              "BANK",
+              "CARD"
+            ],
+            "description": "Channel of debit account",
+            "example": "MTN"
+          },
+          "currency": {
+            "type": "string",
+            "description": "currency code",
+            "example": "GHS"
+          }
+        },
+        "required": [
+          "merchantId",
+          "productId",
+          "country",
+          "debitAccount",
+          "debitAmount",
+          "debitDate",
+          "debitTime",
+          "referenceNo",
+          "channel",
+          "currency"
+        ]
+      },
+      "TriggerDebitRequest": {
+        "type": "object",
+        "properties": {
+          "referenceId": {
+            "type": "string",
+            "description": "debit reference id",
+            "example": "SUB2026R2_001234"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          }
+        },
+        "required": [
+          "referenceId",
+          "productId"
+        ]
+      },
+      "ResumeSubscriptionRequest": {
+        "type": "object",
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "description": "Subscriber's subscription Id",
+            "example": "SUB_2026_001234"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          }
+        },
+        "required": [
+          "subscriptionId",
+          "productId"
+        ]
+      },
+      "PreauthorizationRequest": {
+        "type": "object",
+        "properties": {
+          "debitAccount": {
+            "type": "string",
+            "description": "Account to be debited",
+            "example": "0241234567"
+          },
+          "merchantId": {
+            "type": "string",
+            "description": "Id of merchant",
+            "example": "MERCH_12345"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "MTN",
+              "TELECEL",
+              "AT",
+              "AIRTEL",
+              "BANK",
+              "CARD"
+            ],
+            "description": "Channel of debit account",
+            "example": "MTN"
+          },
+          "referenceNo": {
+            "type": "string",
+            "description": "Reference of debit",
+            "example": "REF_PREAUTH_001234"
+          },
+          "country": {
+            "type": "string",
+            "description": "Country code of debit account",
+            "example": "GH"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date",
+            "description": "Date from which manual preauthorization debit will be allowed",
+            "example": "2026-02-01"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date",
+            "description": "Date on which preauthorization will expire",
+            "example": "2027-02-01"
+          }
+        },
+        "required": [
+          "debitAccount",
+          "merchantId",
+          "productId",
+          "channel",
+          "referenceNo",
+          "country",
+          "startDate",
+          "endDate"
+        ]
+      },
+      "MandateTriggerDebitRequest": {
+        "type": "object",
+        "properties": {
+          "mandateId": {
+            "type": "string",
+            "description": "mandate Id of customer",
+            "example": "MANDATE_001234"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          },
+          "debitAmount": {
+            "type": "string",
+            "description": "Amount to be debited",
+            "example": "200.00"
+          },
+          "narration": {
+            "type": "string",
+            "description": "Description of debit",
+            "example": "Monthly subscription payment"
+          },
+          "referenceNo": {
+            "type": "string",
+            "description": "Reference of debit",
+            "example": "REF_MANDATE_001234"
+          },
+          "debitAccount": {
+            "type": "string",
+            "description": "Account to be debited",
+            "example": "0241234567"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code",
+            "example": "GHS"
+          }
+        },
+        "required": [
+          "mandateId",
+          "productId",
+          "debitAmount",
+          "narration",
+          "referenceNo",
+          "debitAccount",
+          "currency"
+        ]
+      },
+      "CancelPreauthorizationRequest": {
+        "type": "object",
+        "properties": {
+          "preApprovalId": {
+            "type": "string",
+            "description": "Preapproval Id of mandate",
+            "example": "PREAUTH_001234"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          },
+          "debitAccount": {
+            "type": "string",
+            "description": "Account to be debited",
+            "example": "0241234567"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "MTN",
+              "TELECEL",
+              "AT",
+              "AIRTEL",
+              "BANK",
+              "CARD"
+            ],
+            "description": "Channel of debit account",
+            "example": "MTN"
+          },
+          "country": {
+            "type": "string",
+            "description": "Country code of debit account",
+            "example": "GH"
+          }
+        },
+        "required": [
+          "preApprovalId",
+          "productId",
+          "debitAccount",
+          "channel",
+          "country"
+        ]
+      },
+      "PreauthorizationStatusRequest": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "string",
+            "description": "Reference number of the preauthorization",
+            "example": "REF_PREAUTH_001234"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          }
+        },
+        "required": [
+          "reference",
+          "productId"
+        ]
+      },
+      "PreauthorizationStatusResponse": {
+        "type": "object",
+        "properties": {
+          "responseCode": {
+            "type": "string",
+            "enum": [
+              "01",
+              "03",
+              "100",
+              "101",
+              "109"
+            ],
+            "description": "Response code indicating preauthorization status:\n- 01: Active - Preauthorization is active\n- 03: Processing - Preauthorization is still being processed\n- 100: General Failure\n- 101: Mandate not found\n- 109: Unauthorized merchant\n",
+            "example": "01"
+          },
+          "responseMessage": {
+            "type": "string",
+            "enum": [
+              "active",
+              "processing",
+              "General Failure",
+              "mandate not found",
+              "unauthorized merchant"
+            ],
+            "description": "Human-readable status message corresponding to the response code",
+            "example": "active"
+          }
+        },
+        "required": [
+          "responseCode",
+          "responseMessage"
+        ]
+      },
+      "MandateDetailsByReferenceRequest": {
+        "type": "object",
+        "properties": {
+          "referenceId": {
+            "type": "string",
+            "description": "Reference Id of the preauthorization mandate",
+            "example": "REF_PREAUTH_001234"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          }
+        },
+        "required": [
+          "referenceId",
+          "productId"
+        ]
+      },
+      "MandateDetailsObject": {
+        "type": "object",
+        "properties": {
+          "preApprovalId": {
+            "type": "string",
+            "description": "Preapproval Id of the mandate",
+            "example": "PREAUTH_001234"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          },
+          "clientName": {
+            "type": "string",
+            "description": "Name of the client",
+            "example": "John Doe"
+          },
+          "mandateId": {
+            "type": "string",
+            "description": "Mandate identifier",
+            "example": "MAND123459"
+          },
+          "debitAccount": {
+            "type": "string",
+            "description": "Account to be debited",
+            "example": "0241234567"
+          },
+          "countryId": {
+            "type": "string",
+            "description": "Country identifier",
+            "example": "GH"
+          },
+          "merchantId": {
+            "type": "string",
+            "description": "Id of merchant",
+            "example": "MERCH_12345"
+          },
+          "mandateType": {
+            "type": "string",
+            "enum": [
+              "subscription",
+              "authorization",
+              "hybrid"
+            ],
+            "description": "Type of mandate",
+            "example": "authorization"
+          },
+          "status": {
+            "type": "string",
+            "description": "Current status of the mandate",
+            "example": "active"
+          },
+          "debitSource": {
+            "type": "string",
+            "enum": [
+              "MTN",
+              "TELECEL",
+              "AT",
+              "AIRTEL",
+              "BANK",
+              "CARD"
+            ],
+            "description": "Channel of debit account",
+            "example": "MTN"
+          },
+          "refNo": {
+            "type": "string",
+            "description": "Reference number of the mandate",
+            "example": "REF_PREAUTH_001234"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date",
+            "description": "Date from which preauthorization debit is allowed",
+            "example": "2026-02-01"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date",
+            "description": "Date on which preauthorization expires",
+            "example": "2027-02-01"
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when the mandate was created",
+            "example": "2026-02-01T10:00:00"
+          },
+          "updated": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when the mandate was last updated",
+            "example": "2026-02-10T14:30:00"
+          }
+        },
+        "required": [
+          "preApprovalId",
+          "productId",
+          "clientName",
+          "mandateId",
+          "debitAccount",
+          "countryId",
+          "merchantId",
+          "refNo"
+        ]
+      },
+      "MandateDetailsResponse": {
+        "type": "object",
+        "properties": {
+          "responseCode": {
+            "type": "string",
+            "example": "01"
+          },
+          "responseMessage": {
+            "type": "string",
+            "example": "operation successful"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MandateDetailsObject"
+          }
+        },
+        "required": [
+          "responseCode",
+          "responseMessage",
+          "data"
+        ]
+      },
+      "SubscriptionDetailsByReferenceRequest": {
+        "type": "object",
+        "properties": {
+          "referenceId": {
+            "type": "string",
+            "description": "Reference Id of the subscription",
+            "example": "REF_2026_001234"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of product",
+            "example": "PROD_67890"
+          }
+        },
+        "required": [
+          "referenceId",
+          "productId"
+        ]
+      },
+      "TransactionStatusByReferenceAndProduct": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "string",
+            "description": "transaction reference",
+            "example": "34534545000055"
+          },
+          "productId": {
+            "type": "string",
+            "description": "merchant product id",
+            "example": "223452452-ofg443254"
+          },
+          "mandateId": {
+            "type": "string",
+            "description": "mandate id",
+            "example": "MAND123459"
+          }
+        },
+        "required": [
+          "reference",
+          "productId",
+          "mandateId"
+        ]
+      }
+    },
+    "parameters": {
+      "TransflowIdHeader": {
+        "name": "x-transflowId",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Id required for authentication"
+      },
+      "ApiKeyHeader": {
+        "name": "x-key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "API key of specific merchant"
+      },
+      "CountryHeader": {
+        "name": "x-country",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Country code of merchant"
+      }
+    }
+  },
+  "paths": {
+    "/subscription/subscribe": {
+      "post": {
+        "tags": [
+          "Subscription Management"
+        ],
+        "summary": "Send Subscription Request",
+        "description": "This is used to send a subscription request. Note that configurations not provided will be replaced by the product's default configuration.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionRequest"
+              },
+              "examples": {
+                "monthlySubscription": {
+                  "summary": "Monthly Mobile Money",
+                  "value": {
+                    "merchantId": "MERCH_12345",
+                    "productId": "PROD_67890",
+                    "debitAccount": "0241234567",
+                    "debitAmount": "50.00",
+                    "frequencyType": "MONTHLY",
+                    "startDate": "2026-02-01",
+                    "endDate": "2027-02-01",
+                    "debitDay": "15",
+                    "debitTime": "14:30",
+                    "referenceNo": "REF_2026_001234",
+                    "channel": "MTN",
+                    "currency": "GHS",
+                    "triggerDebitStatus": true,
+                    "notificationStatus": true,
+                    "configuration": [
+                      {
+                        "name": "retryAttempts",
+                        "value": "3"
+                      },
+                      {
+                        "name": "skipFactor",
+                        "value": "1"
+                      },
+                      {
+                        "name": "daysToDebitDayNotice",
+                        "value": "1,2,3"
+                      }
+                    ]
+                  }
+                },
+                "weeklySubscription": {
+                  "summary": "Weekly Bank Debit",
+                  "value": {
+                    "merchantId": "MERCH_54321",
+                    "productId": "PROD_09876",
+                    "debitAccount": "1234567890",
+                    "debitAmount": "100.00",
+                    "frequencyType": "WEEKLY",
+                    "startDate": "2026-02-01",
+                    "endDate": "2026-08-01",
+                    "debitDay": "5",
+                    "debitTime": "09:00",
+                    "referenceNo": "REF_2026_005678",
+                    "channel": "BANK",
+                    "currency": "GHS",
+                    "debitNotificationAccount": "233558898890",
+                    "triggerDebitStatus": false,
+                    "notificationStatus": true,
+                    "configuration": [
+                      {
+                        "name": "retryAttempts",
+                        "value": "5"
+                      },
+                      {
+                        "name": "skipFactor",
+                        "value": "2"
+                      },
+                      {
+                        "name": "daysToDebitDayNotice",
+                        "value": "1,3"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ProcessingResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DuplicateSubscriptionResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subscription/update": {
+      "post": {
+        "tags": [
+          "Subscription Management"
+        ],
+        "summary": "Update Subscription",
+        "description": "Update existing subscription. Only changed fields need to be provided.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSubscriptionRequest"
+              },
+              "examples": {
+                "updateAmount": {
+                  "summary": "Update Amount",
+                  "value": {
+                    "subscriptionId": "SUB_2026_001234",
+                    "productId": "PROD_67890",
+                    "debitAmount": "75.00",
+                    "configuration": [
+                      {
+                        "name": "retryAttempts",
+                        "value": "4"
+                      },
+                      {
+                        "name": "skipFactor",
+                        "value": "1"
+                      },
+                      {
+                        "name": "daysToDebitDayNotice",
+                        "value": "2,5"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ProcessingResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subscription/cancel": {
+      "post": {
+        "tags": [
+          "Subscription Management"
+        ],
+        "summary": "Cancel Subscription",
+        "description": "Cancel an existing subscription",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelSubscriptionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ProcessedResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subscription/customer-subscriptions": {
+      "post": {
+        "tags": [
+          "Subscription Management"
+        ],
+        "summary": "Get Customer Subscriptions",
+        "description": "Retrieve all subscriptions for a customer on a specific product",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerSubscriptionsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerSubscriptionsResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subscription/pause": {
+      "post": {
+        "tags": [
+          "Subscription Management"
+        ],
+        "summary": "Pause Subscription",
+        "description": "Pause an existing subscription",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PauseSubscriptionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ProcessedResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subscription/schedule-debit": {
+      "post": {
+        "tags": [
+          "Subscription Management"
+        ],
+        "summary": "Schedule One-time Debit",
+        "description": "Schedule a one-time debit to be executed in the future.\nThe date of debit must be at least 24 hours from the date of schedule request.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleDebitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ProcessingResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subscription/trigger-debit": {
+      "post": {
+        "tags": [
+          "Subscription Management"
+        ],
+        "summary": "Trigger Debit",
+        "description": "Trigger failed subscription debits.\nThis privilege is available for merchants whose externalTriggerDebit is true.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerDebitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TriggerDebitResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subscription/resume-debit": {
+      "post": {
+        "tags": [
+          "Subscription Management"
+        ],
+        "summary": "Resume Subscription",
+        "description": "Resume a paused subscription",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeSubscriptionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ProcessedResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/direct-debit/subscription/retrieve/details/thirdpartyreferenceno": {
+      "post": {
+        "tags": [
+          "Subscription Management"
+        ],
+        "summary": "Retrieve Subscription by Reference",
+        "description": "Retrieve subscription details using third party reference number",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionDetailsByReferenceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/SubscriptionDetailsResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/direct-debit/transaction/check-status": {
+      "post": {
+        "tags": [
+          "Transaction Management"
+        ],
+        "summary": "Retrieve Transaction Status",
+        "description": "Retrieve transaction status using transaction reference, product id and mandate id",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransactionStatusByReferenceAndProduct"
+              },
+              "examples": {
+                "statusCheck": {
+                  "summary": "Transaction Status Check",
+                  "value": {
+                    "reference": "34534545000055",
+                    "productId": "223452452-ofg443254",
+                    "mandateId": "MAND123459"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TransactionStatusCheckResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pre-authorization/authorize": {
+      "post": {
+        "tags": [
+          "Preauthorization Management"
+        ],
+        "summary": "Create Preauthorization",
+        "description": "Place a preauthorization request to a consumer",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreauthorizationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ProcessingResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DuplicatePreauthorizationResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mandate/trigger-debit": {
+      "post": {
+        "tags": [
+          "Preauthorization Management"
+        ],
+        "summary": "Trigger Mandate Debit",
+        "description": "Trigger preauthorized debits.\nThis API is available for mandate or preauthorized only merchants.\nHybrid or subscription only merchants are not permitted.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MandateTriggerDebitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TriggerDebitResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mandate/check-status": {
+      "post": {
+        "tags": [
+          "Preauthorization Management"
+        ],
+        "summary": "Check Preauthorization Status",
+        "description": "Check the status of a preauthorization using its reference and product ID",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreauthorizationStatusRequest"
+              },
+              "examples": {
+                "checkPreauthorizationStatus": {
+                  "summary": "Check Preauthorization Status",
+                  "value": {
+                    "productId": "PROD_67890",
+                    "reference": "REF_PREAUTH_001234"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/PreauthorizationStatusResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/direct-debit/pre-authorization/retrieve/details": {
+      "post": {
+        "tags": [
+          "Preauthorization Management"
+        ],
+        "summary": "Retrieve Preauthorization Mandate Details",
+        "description": "Retrieve full mandate details for a preauthorization using its reference Id and product Id",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MandateDetailsByReferenceRequest"
+              },
+              "examples": {
+                "retrieveMandateDetails": {
+                  "summary": "Retrieve Mandate Details",
+                  "value": {
+                    "referenceId": "REF_PREAUTH_001234",
+                    "productId": "PROD_67890"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/MandateDetailsResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MandateNotFoundResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pre-authorization/cancel": {
+      "post": {
+        "tags": [
+          "Preauthorization Management"
+        ],
+        "summary": "Cancel Preauthorization",
+        "description": "Cancel an existing preauthorization",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TransflowIdHeader"
+          },
+          {
+            "$ref": "#/components/parameters/ApiKeyHeader"
+          },
+          {
+            "$ref": "#/components/parameters/CountryHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelPreauthorizationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ProcessedResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GeneralFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedMerchantResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Subscription Management",
+      "description": "Operations related to subscription management"
+    },
+    {
+      "name": "Transaction Management",
+      "description": "Operations related to transaction management"
+    },
+    {
+      "name": "Preauthorization Management",
+      "description": "Operations related to preauthorization management"
+    }
+  ]
+}

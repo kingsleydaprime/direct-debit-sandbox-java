@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ITC Direct Debit Sandbox — API Docs</title>
+  <title>ITC Direct Debit — API Reference</title>
   <link href="https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:300,400,700" rel="stylesheet">
   <link rel="stylesheet" href="docs.css" />
 </head>
@@ -24,8 +24,8 @@
     </div>
 
     <nav class="topbar-nav">
-      <a class="topbar-link topbar-link-active" href="/">Sandbox</a>
-      <a class="topbar-link" href="/sandbox">API Reference</a>
+      <a class="topbar-link" href="/">Sandbox</a>
+      <a class="topbar-link topbar-link-active" href="/sandbox">API Reference</a>
       <a class="topbar-link" href="/docs" target="_blank">Swagger UI ↗</a>
     </nav>
     <button class="btn-authorize" id="btn-authorize">
@@ -77,6 +77,9 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <script>
+    window.SPEC_URL = '/openapi.json';
+  </script>
   <script src="docs.js"></script>
 </body>
 </html>
